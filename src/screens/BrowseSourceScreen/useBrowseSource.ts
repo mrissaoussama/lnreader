@@ -3,6 +3,8 @@ import { NovelItem } from '@plugins/types';
 
 import { getPlugin } from '@plugins/pluginManager';
 import { FilterToValues, Filters } from '@plugins/types/filterTypes';
+import { useBrowseSettings } from '@hooks/persisted/useSettings';
+import { useLibraryContext } from '@components/Context/LibraryContext';
 
 export const useBrowseSource = (
   pluginId: string,
@@ -13,7 +15,7 @@ export const useBrowseSource = (
   const [error, setError] = useState<string>();
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [filterValues, setFilterValues] = useState<Filters | undefined>(
+  const [filterValues, _setFilterValues] = useState<Filters | undefined>(
     getPlugin(pluginId)?.filters,
   );
   const [selectedFilters, setSelectedFilters] = useState<
@@ -23,6 +25,9 @@ export const useBrowseSource = (
 
   const isScreenMounted = useRef(true);
 
+  const { hideInLibraryItems } = useBrowseSettings();
+  const { novelInLibrary } = useLibraryContext();
+
   const fetchNovels = useCallback(
     async (page: number, filters?: FilterToValues<Filters>) => {
       if (isScreenMounted.current === true) {
@@ -31,24 +36,19 @@ export const useBrowseSource = (
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
           }
-          await plugin
-            .popularNovels(page, {
-              showLatestNovels,
-              filters,
-            })
-            .then(res => {
-              setNovels(prevState =>
-                page === 1 ? res : [...prevState, ...res],
-              );
-              if (!res.length) {
-                setHasNextPage(false);
-              }
-            })
-            .catch(e => {
-              setError(e.message);
-              setHasNextPage(false);
-            });
-          setFilterValues(plugin.filters);
+          let res = await plugin.popularNovels(page, {
+            showLatestNovels,
+            filters,
+          });
+          if (hideInLibraryItems) {
+            res = res.filter(
+              pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
+            );
+          }
+          setNovels(prevState => (page === 1 ? res : [...prevState, ...res]));
+          if (!res.length) {
+            setHasNextPage(false);
+          }
         } catch (err: unknown) {
           setError(`${err}`);
         } finally {
@@ -56,7 +56,7 @@ export const useBrowseSource = (
         }
       }
     },
-    [pluginId, showLatestNovels],
+    [pluginId, showLatestNovels, hideInLibraryItems, novelInLibrary],
   );
 
   const fetchNextPage = () => {
@@ -74,7 +74,7 @@ export const useBrowseSource = (
 
   useEffect(() => {
     fetchNovels(currentPage, selectedFilters);
-  }, [fetchNovels, currentPage, selectedFilters]);
+  }, [fetchNovels, currentPage, selectedFilters, hideInLibraryItems]);
 
   const refetchNovels = () => {
     setError('');
@@ -117,6 +117,9 @@ export const useSearchSource = (pluginId: string) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchText, setSearchText] = useState('');
 
+  const { hideInLibraryItems } = useBrowseSettings();
+  const { novelInLibrary } = useLibraryContext();
+
   const searchSource = (searchTerm: string) => {
     setSearchResults([]);
     setHasNextSearchPage(true);
@@ -135,7 +138,12 @@ export const useSearchSource = (pluginId: string) => {
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
           }
-          const res = await plugin.searchNovels(localSearchText, page);
+          let res = await plugin.searchNovels(localSearchText, page);
+          if (hideInLibraryItems) {
+            res = res.filter(
+              pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
+            );
+          }
           setSearchResults(prevState =>
             page === 1 ? res : [...prevState, ...res],
           );
@@ -150,7 +158,7 @@ export const useSearchSource = (pluginId: string) => {
         }
       }
     },
-    [pluginId],
+    [pluginId, hideInLibraryItems, novelInLibrary],
   );
 
   const searchNextPage = () => {
@@ -161,7 +169,7 @@ export const useSearchSource = (pluginId: string) => {
     if (searchText) {
       fetchNovels(searchText, currentPage);
     }
-  }, [currentPage, fetchNovels, searchText]);
+  }, [currentPage, fetchNovels, searchText, hideInLibraryItems]);
 
   const clearSearchResults = useCallback(() => {
     setSearchText('');

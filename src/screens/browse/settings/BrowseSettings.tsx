@@ -21,6 +21,7 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
   const {
     showMyAnimeList,
     showAniList,
+    hideInLibraryItems,
     globalSearchConcurrency,
     setBrowseSettings,
   } = useBrowseSettings();
@@ -69,6 +70,15 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
               value={showMyAnimeList}
               onPress={() =>
                 setBrowseSettings({ showMyAnimeList: !showMyAnimeList })
+              }
+              theme={theme}
+              style={styles.item}
+            />
+            <SwitchItem
+              label={getString('browseScreen.hideInLibraryItems')}
+              value={hideInLibraryItems}
+              onPress={() =>
+                setBrowseSettings({ hideInLibraryItems: !hideInLibraryItems })
               }
               theme={theme}
               style={styles.item}

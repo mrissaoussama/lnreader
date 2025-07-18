@@ -10,6 +10,7 @@ import FilterBottomSheet from './components/FilterBottomSheet';
 import { useSearch } from '@hooks';
 import { useTheme } from '@hooks/persisted';
 import { useBrowseSource, useSearchSource } from './useBrowseSource';
+import { useBrowseSettings } from '@hooks/persisted/useSettings';
 
 import { NovelItem } from '@plugins/types';
 import { getString } from '@strings/translations';
@@ -69,6 +70,8 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const { novelInLibrary, switchNovelToLibrary } = useLibraryContext();
   const [inActivity, setInActivity] = useState<Record<string, boolean>>({});
 
+  const { hideInLibraryItems } = useBrowseSettings();
+
   const navigateToNovel = useCallback(
     (item: NovelItem | NovelInfo) =>
       navigation.navigate('ReaderStack', {
@@ -120,6 +123,9 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
           data={novelList}
           inSource
           renderItem={({ item }) => {
+            if (hideInLibraryItems && novelInLibrary(pluginId, item.path)) {
+              return null;
+            }
             const inLibrary = novelInLibrary(pluginId, item.path);
 
             return (
