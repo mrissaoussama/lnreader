@@ -104,6 +104,7 @@
   "browse": "Browse",
   "browseScreen": {
     "addedToLibrary": "Added to library",
+    "hideInLibraryItems": "Hide in library",
     "available": "Available",
     "discover": "Discover",
     "globalSearch": "Global search",
