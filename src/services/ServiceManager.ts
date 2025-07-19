@@ -15,6 +15,7 @@ import {
 import { migrateNovel, MigrateNovelData } from './migrate/migrateNovel';
 import { downloadChapter } from './download/downloadChapter';
 import { askForPostNotificationsPermission } from '@utils/askForPostNoftificationsPermission';
+import { massImport } from './updates/massImport';
 import { createBackup, restoreBackup } from './backup/local';
 
 type taskNames =
@@ -27,7 +28,8 @@ type taskNames =
   | 'LOCAL_BACKUP'
   | 'LOCAL_RESTORE'
   | 'MIGRATE_NOVEL'
-  | 'DOWNLOAD_CHAPTER';
+  | 'DOWNLOAD_CHAPTER'
+  | 'MASS_IMPORT';
 
 export type BackgroundTask =
   | {
@@ -290,9 +292,16 @@ export default class ServiceManager {
         return migrateNovel(task.task.data, this.setMeta.bind(this));
       case 'DOWNLOAD_CHAPTER':
         return downloadChapter(task.task.data, this.setMeta.bind(this));
+      case 'MASS_IMPORT': {
+        const data = task.task.data;
+        const massImportData: { urls: string[] } =
+          data && typeof data === 'object' && Array.isArray(data.urls)
+            ? (data as { urls: string[] })
+            : { urls: [] };
+        return massImport(massImportData, this.setMeta.bind(this));
+      }
     }
   }
-
   static async launch() {
     // retrieve class instance because this is running in different context
     const manager = ServiceManager.manager;
@@ -307,6 +316,7 @@ export default class ServiceManager {
       'LOCAL_RESTORE': 0,
       'MIGRATE_NOVEL': 0,
       'DOWNLOAD_CHAPTER': 0,
+      'MASS_IMPORT': 0,
     };
     const startingTasks = manager.getTaskList();
     const tasksSet = new Set(startingTasks.map(t => t.id));
@@ -385,6 +395,8 @@ export default class ServiceManager {
         return 'Local Backup';
       case 'LOCAL_RESTORE':
         return 'Local Restore';
+      case 'MASS_IMPORT':
+        return 'Mass Import';
       default:
         return 'Unknown Task';
     }
