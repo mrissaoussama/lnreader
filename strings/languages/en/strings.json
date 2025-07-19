@@ -187,6 +187,7 @@
     "example": "Example",
     "filter": "Filter",
     "globally": "globally",
+    "import": "Import",
     "install": "Install",
     "logout": "Logout",
     "name": "Name",
@@ -325,12 +326,17 @@
     },
     "empty": "Your library is empty. Add series to your library from Browse.",
     "extraMenu": {
-      "importEpub": "Import Epub",
-      "openRandom": "Open Random Entry",
-      "updateCategory": "Update Category",
-      "updateLibrary": "Update Library"
-    },
-    "searchbar": "Search library"
+        "importEpub": "Import Epub",
+        "massImport": "Bulk import",
+        "openRandom": "Open Random Entry",
+        "updateCategory": "Update Category",
+        "updateLibrary": "Update Library"
+      },
+    "searchbar": "Search library",
+    "massImportModal": {
+      "title": "Bulk Import",
+      "placeholder": "Enter novel URLs separated by new lines or spaces"
+    }
   },
   "more": "More",
   "moreScreen": {
@@ -531,6 +537,7 @@
     "LOCAL_BACKUP": "Local backup",
     "LOCAL_RESTORE": "Local restore",
     "MIGRATE_NOVEL": "Migrated novel",
-    "DOWNLOAD_CHAPTER": "Downloaded chapter"
+    "DOWNLOAD_CHAPTER": "Downloaded chapter",
+    "MASS_IMPORT": "Bulk Import"
   }
 }
