@@ -38,6 +38,7 @@ import {
 } from '@database/queries/ChapterQueries';
 import { removeNovelsFromLibrary } from '@database/queries/NovelQueries';
 import SetCategoryModal from '@screens/novel/components/SetCategoriesModal';
+import MassImportModal from './components/MassImportModal/MassImportModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
 import { Row } from '@components/Common';
@@ -48,6 +49,9 @@ import ServiceManager from '@services/ServiceManager';
 import useImport from '@hooks/persisted/useImport';
 import { ThemeColors } from '@theme/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
+import * as Clipboard from 'expo-clipboard';
+import { showToast } from '@utils/showToast';
+import { ImportResult } from './components/MassImportModal/MassImportSummaryModal';
 
 type State = NavigationState<{
   key: string;
@@ -100,6 +104,12 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     setFalse: closeSetCategoryModal,
   } = useBoolean();
 
+  const {
+    value: massImportModalVisible,
+    setTrue: showMassImportModal,
+    setFalse: closeMassImportModal,
+  } = useBoolean();
+
   const handleClearSearchbar = () => {
     clearSearchbar();
   };
@@ -121,6 +131,39 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
     return false;
   });
+
+  useEffect(() => {
+    const getSummaryText = (results: ImportResult) => {
+      let summary = `ADDED (${results.added.length}):\n`;
+      results.added.forEach(
+        item => (summary += `- ${item.name}: ${item.url}\n`),
+      );
+
+      summary += `\nSKIPPED (${results.skipped.length}):\n`;
+      results.skipped.forEach(
+        item => (summary += `- ${item.name}: ${item.url}\n`),
+      );
+
+      summary += `\nERRORED (${results.errored.length}):\n`;
+      results.errored.forEach(
+        item =>
+          (summary += `- ${item.name}: ${item.url} (Error: ${item.error})\n`),
+      );
+
+      return summary;
+    };
+
+    const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
+      if (task && !task.isRunning && task.result) {
+        const summary = getSummaryText(task.result);
+        Clipboard.setStringAsync(summary);
+        showToast(getString('common.copiedToClipboard'));
+        refetchLibrary();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [refetchLibrary]);
 
   useEffect(
     () =>
@@ -356,6 +399,10 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             onPress: pickAndImport,
           },
           {
+            title: getString('libraryScreen.extraMenu.massImport'),
+            onPress: showMassImportModal,
+          },
+          {
             title: getString('libraryScreen.extraMenu.openRandom'),
             onPress: openRandom,
           },
@@ -429,6 +476,10 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           setSelectedNovelIds([]);
           refetchLibrary();
         }}
+      />
+      <MassImportModal
+        visible={massImportModalVisible}
+        closeModal={closeMassImportModal}
       />
       <LibraryBottomSheet
         bottomSheetRef={bottomSheetRef}
