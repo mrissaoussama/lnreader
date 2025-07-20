@@ -124,6 +124,8 @@ export interface StringMap {
   'browseScreen.filterPresets.noPresets': 'string';
   'browseScreen.filterPresets.loadPreset': 'string';
   'browseScreen.filterPresets.deletePreset': 'string';
+  'browseScreen.importSelected': 'string';
+  'browseScreen.urlsCopiedAndImported': 'string';
   'browseSettings': 'string';
   'browseSettingsScreen.concurrentSearches': 'string';
   'browseSettingsScreen.multi': 'string';
