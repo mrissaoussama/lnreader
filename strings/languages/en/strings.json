@@ -139,7 +139,19 @@
     "settings": {
       "title": "Plugin Settings",
       "description": "Fill in the plugin settings. Restart app to apply the settings."
-    }
+    },
+    "filterPresets": {
+      "savePreset": "Save Filter Preset",
+      "presetName": "Preset Name",
+      "managePresets": "Manage Filter Presets",
+      "noPresets": "No saved presets",
+      "loadPreset": "Load Preset",
+      "deletePreset": "Delete Preset"
+    },
+    "loadingPaused": "Loading paused",
+    "localFilteringPaused": "Local filtering paused",
+    "importSelected": "Import %{count}",
+    "urlsCopiedAndImported": "%{count} URLs copied to clipboard and added to bulk import"
   },
   "browseSettings": "Browse Settings",
   "browseSettingsScreen": {
@@ -211,7 +223,9 @@
     "sort": "Sort",
     "submit": "Submit",
     "loading": "Loading ...",
-    "warning": "Warning"
+    "warning": "Warning",
+    "readingList": "reading list",
+    "status": "status"
   },
   "webview": {
     "refresh": "Refresh",
@@ -330,7 +344,10 @@
         "massImport": "Bulk import",
         "openRandom": "Open Random Entry",
         "updateCategory": "Update Category",
-        "updateLibrary": "Update Library"
+        "updateLibrary": "Update Library",
+        "syncFromTrackers": "Sync from Trackers",
+        "syncToTrackers": "Sync to Trackers",
+        "syncAllTrackers": "Sync All Trackers"
       },
     "searchbar": "Search library",
     "massImportModal": {
@@ -427,7 +444,30 @@
     "tracked": "Tracked",
     "tracking": "Tracking",
     "unknownStatus": "Unknown status",
-    "updatedToast": "Updated %{name}"
+    "updatedToast": "Updated %{name}",
+    "alternativeTitles": {
+      "title": "Alternative Titles",
+      "addNewTitle": "Add new alternative title",
+      "add": "Add",
+      "noTitlesYet": "No alternative titles added yet",
+      "deleteTitle": "Delete Alternative Title",
+      "deleteConfirm": "Are you sure you want to delete \"%{title}\"?",
+      "clearAll": "Clear All Alternative Titles",
+      "clearAllConfirm": "Are you sure you want to delete all alternative titles?",
+      "enterTitle": "Please enter a title",
+      "titleEmpty": "Title cannot be empty",
+      "titleAdded": "Alternative title added",
+      "titleDeleted": "Alternative title deleted",
+      "titleUpdated": "Alternative title updated",
+      "titleCopied": "Title copied to clipboard",
+      "allTitlesCleared": "All alternative titles cleared",
+      "failedToLoad": "Failed to load alternative titles",
+      "failedToAdd": "Failed to add alternative title",
+      "failedToDelete": "Failed to delete alternative title",
+      "failedToUpdate": "Failed to update alternative title",
+      "failedToCopy": "Failed to copy title",
+      "failedToClear": "Failed to clear alternative titles"
+    }
   },
   "readerScreen": {
     "bottomSheet": {
@@ -507,6 +547,68 @@
     "revalidate": "Revalidate",
     "services": "Services"
   },
+  "trackingDialog": {
+    "updateAllTrackers": "Update All Trackers",
+    "targetProgress": "Target Progress",
+    "setProgress": "Set Progress",
+    "highest": "Highest",
+    "chapters": "chapters",
+    "leaveEmptyForHighest": "Leave empty to use the highest progress automatically",
+    "updateTo": "Update to %{progress}",
+    "app": "App",
+    "notLoggedIn": "Not logged in",
+    "notTracked": "Not tracked",
+    "link": "Link",
+    "unlink": "Unlink",
+    "progress": "Progress",
+    "error": "Error",
+    "pleaseLoginTo": "Please login to %{tracker} in settings.",
+    "trackNovel": "Track Novel",
+    "searchTracker": "Search %{tracker}",
+    "noResults": "No search results found",
+    "loading": "Loading...",
+    "searchingFor": "Searching for: %{query}",
+    "loadingMore": "Loading more...",
+    "markedProgress": "Marked",
+    "notesProgress": "Notes",
+    "pleaseSelectTracker": "Please select a tracker first",
+    "selectReadingList": "Please select a %{listType} first",
+    "cannotTrackNovelWithoutID": "Cannot track novel without valid ID",
+    "failedToRefreshLists": "Failed to refresh reading lists",
+    "failedToUpdateTrackers": "Failed to update trackers",
+    "failedToLinkNovel": "Failed to link novel",
+    "failedToAddToList": "Failed to add to reading list",
+    "noChaptersRead": "No chapters have been read and no trackers are connected",
+    "noTrackersAvailable": "No trackers available. Please check your app configuration.",
+    "autoSyncSettings": "Auto-sync Settings",
+    "autoSyncTracker": "Auto-sync Trackers",
+    "autoSyncTrackerDesc": "Automatically sync reading progress to trackers",
+    "chapterThreshold": "Chapter Threshold",
+    "chapterThresholdDesc": "Sync after reading this many chapters ahead of tracker",
+    "customThreshold": "Custom threshold",
+    "customThresholdPlaceholder": "Enter number of chapters",
+    "customThresholdSet": "Custom threshold set to %{value} chapters",
+    "customThresholdError": "Please enter a valid number greater than 0"
+  },
+  "novelUpdatesSettings": {
+    "title": "Novel Updates Settings",
+    "trackingSettings": "Tracking Settings",
+    "markChaptersEnabled": "Mark chapters when tracking",
+    "markChaptersEnabledDesc": "When updating progress, also mark individual chapters in Novel Updates (in addition to updating notes)",
+    "syncSettings": "Sync Settings",
+    "markChapterRead": "Mark chapters in Novel Updates",
+    "markChapterReadDesc": "When syncing, also mark individual chapters in Novel Updates (in addition to updating notes with chapter count)",
+    "updateAllNovels": "Update all novels",
+    "updateAllNovelsDesc": "Update progress for all novels, not just those from Novel Updates source",
+    "information": "Information",
+    "howItWorks": "How it works",
+    "howItWorksDesc": "Sync always keeps the highest progress: if App has 15, Tracker A has 20, Tracker B has 30, all will be updated to 30",
+    "syncExplanation": {
+      "from": "Update app reading progress from trackers, keeping highest progress.",
+      "to": "Update tracker progress from app, keeping highest progress.",
+      "all": "Bidirectional sync keeping the highest progress. All trackers and app will be updated to the maximum progress found."
+    }
+  },
   "updates": "Updates",
   "updatesScreen": {
     "deletedChapters": "Deleted %{num} chapters",
@@ -538,6 +640,9 @@
     "LOCAL_RESTORE": "Local restore",
     "MIGRATE_NOVEL": "Migrated novel",
     "DOWNLOAD_CHAPTER": "Downloaded chapter",
-    "MASS_IMPORT": "Bulk Import"
+    "MASS_IMPORT": "Bulk Import",
+    "SYNC_FROM_TRACKERS": "Sync from trackers",
+    "SYNC_TO_TRACKERS": "Sync to trackers",
+    "SYNC_ALL_TRACKERS": "Sync all trackers"
   }
 }

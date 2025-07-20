@@ -30,6 +30,14 @@ import { getString } from '@strings/translations';
 import { ThemeColors } from '@theme/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Switch from '@components/Switch/Switch';
+import {
+  getFilterPresets,
+  saveFilterPreset,
+  deleteFilterPreset,
+  FilterPreset,
+} from '@utils/filterPresets';
+import SavePresetModal from './SavePresetModal';
+import ManagePresetsModal from './ManagePresetsModal';
 
 const insertOrRemoveIntoArray = (array: string[], val: string): string[] =>
   array.indexOf(val) > -1 ? array.filter(ele => ele !== val) : [...array, val];
@@ -338,6 +346,7 @@ interface BottomSheetProps {
   filters: Filters;
   setFilters: (filters?: SelectedFilters) => void;
   clearFilters: (filters: Filters) => void;
+  pluginId: string;
 }
 
 const FilterBottomSheet: React.FC<BottomSheetProps> = ({
@@ -345,54 +354,125 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
   filterSheetRef,
   clearFilters,
   setFilters,
+  pluginId,
 }) => {
   const theme = useTheme();
   const { bottom } = useSafeAreaInsets();
   const [selectedFilters, setSelectedFilters] =
     useState<SelectedFilters>(filters);
 
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showManageModal, setShowManageModal] = useState(false);
+
+  React.useEffect(() => {
+    const loadedPresets = getFilterPresets(pluginId);
+    setPresets(loadedPresets);
+  }, [pluginId]);
+
+  const handleSavePreset = (name: string) => {
+    try {
+      saveFilterPreset(pluginId, name, selectedFilters);
+      const updatedPresets = getFilterPresets(pluginId);
+      setPresets(updatedPresets);
+    } catch (error) {}
+  };
+
+  const handleLoadPreset = (preset: FilterPreset) => {
+    setSelectedFilters(preset.filters);
+  };
+
+  const handleDeletePreset = (presetId: string) => {
+    try {
+      deleteFilterPreset(pluginId, presetId);
+      const updatedPresets = getFilterPresets(pluginId);
+      setPresets(updatedPresets);
+    } catch (error) {}
+  };
+
   return (
-    <BottomSheet
-      bottomSheetRef={filterSheetRef}
-      snapPoints={[400, 600]}
-      bottomInset={bottom}
-      backgroundStyle={styles.transparent}
-      style={[styles.container, { backgroundColor: overlay(2, theme.surface) }]}
-    >
-      <BottomSheetView
-        style={[styles.buttonContainer, { borderBottomColor: theme.outline }]}
+    <>
+      <BottomSheet
+        bottomSheetRef={filterSheetRef}
+        snapPoints={[400, 600]}
+        bottomInset={bottom}
+        backgroundStyle={styles.transparent}
+        style={[
+          styles.container,
+          { backgroundColor: overlay(2, theme.surface) },
+        ]}
       >
-        <Button
-          title={getString('common.reset')}
-          onPress={() => {
-            setSelectedFilters(filters);
-            clearFilters(filters);
-          }}
+        <BottomSheetView
+          style={[styles.buttonContainer, { borderBottomColor: theme.outline }]}
+        >
+          <View style={styles.presetButtonsContainer}>
+            <Button
+              icon="content-save"
+              mode="outlined"
+              compact
+              onPress={() => setShowSaveModal(true)}
+            >
+              {getString('common.save')}
+            </Button>
+            <Button
+              icon="folder-open"
+              mode="outlined"
+              compact
+              onPress={() => setShowManageModal(true)}
+            >
+              {getString('browseScreen.filterPresets.loadPreset')}
+            </Button>
+          </View>
+          <View style={styles.actionButtonsContainer}>
+            <Button
+              title={getString('common.reset')}
+              onPress={() => {
+                setSelectedFilters(filters);
+                clearFilters(filters);
+              }}
+            />
+            <Button
+              title={getString('common.filter')}
+              textColor={theme.onPrimary}
+              onPress={() => {
+                setFilters(selectedFilters);
+                filterSheetRef?.current?.close();
+              }}
+              mode="contained"
+            />
+          </View>
+        </BottomSheetView>
+        <BottomSheetFlatList
+          data={filters && Object.entries(filters)}
+          keyExtractor={item => 'filter' + item[0]}
+          renderItem={({ item }) => (
+            <FilterItem
+              theme={theme}
+              filter={item[1]}
+              filterKey={item[0]}
+              selectedFilters={selectedFilters}
+              setSelectedFilters={setSelectedFilters}
+            />
+          )}
         />
-        <Button
-          title={getString('common.filter')}
-          textColor={theme.onPrimary}
-          onPress={() => {
-            setFilters(selectedFilters);
-            filterSheetRef?.current?.close();
-          }}
-          mode="contained"
-        />
-      </BottomSheetView>
-      <BottomSheetFlatList
-        data={filters && Object.entries(filters)}
-        keyExtractor={item => 'filter' + item[0]}
-        renderItem={({ item }) => (
-          <FilterItem
-            theme={theme}
-            filter={item[1]}
-            filterKey={item[0]}
-            selectedFilters={selectedFilters}
-            setSelectedFilters={setSelectedFilters}
-          />
-        )}
+      </BottomSheet>
+
+      <SavePresetModal
+        visible={showSaveModal}
+        onDismiss={() => setShowSaveModal(false)}
+        onSave={handleSavePreset}
+        theme={theme}
       />
-    </BottomSheet>
+
+      <ManagePresetsModal
+        visible={showManageModal}
+        onDismiss={() => setShowManageModal(false)}
+        presets={presets}
+        onLoadPreset={handleLoadPreset}
+        onDeletePreset={handleDeletePreset}
+        theme={theme}
+      />
+    </>
   );
 };
 
@@ -404,13 +484,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   buttonContainer: {
-    alignItems: 'center',
     borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     paddingBottom: 8,
     paddingHorizontal: 24,
     paddingTop: 8,
+  },
+  presetButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+    gap: 8,
+  },
+  actionButtonsContainer: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   checkboxHeader: {
     alignItems: 'center',
