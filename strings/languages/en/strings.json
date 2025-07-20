@@ -139,6 +139,14 @@
     "settings": {
       "title": "Plugin Settings",
       "description": "Fill in the plugin settings. Restart app to apply the settings."
+    },
+    "filterPresets": {
+      "savePreset": "Save Filter Preset",
+      "presetName": "Preset Name",
+      "managePresets": "Manage Filter Presets",
+      "noPresets": "No saved presets",
+      "loadPreset": "Load Preset",
+      "deletePreset": "Delete Preset"
     }
   },
   "browseSettings": "Browse Settings",
