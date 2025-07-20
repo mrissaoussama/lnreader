@@ -20,6 +20,9 @@ import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/Source
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrowseSourceScreenProps } from '@navigators/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
+import ServiceManager from '@services/ServiceManager';
+import { showToast } from '@utils/showToast';
+import * as Clipboard from 'expo-clipboard';
 
 const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const theme = useTheme();
@@ -53,10 +56,16 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const onChangeText = (text: string) => setSearchText(text);
   const onSubmitEditing = () => {
     searchSource(searchText);
+    if (isMultiSelectMode) {
+      setSelectedItems([]);
+    }
   };
   const handleClearSearchbar = () => {
     clearSearchbar();
     clearSearchResults();
+    if (isMultiSelectMode) {
+      setSelectedItems([]);
+    }
   };
 
   const handleOpenWebView = async () => {
@@ -67,8 +76,14 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     });
   };
 
-  const { novelInLibrary, switchNovelToLibrary } = useLibraryContext();
+  const { novelInLibrary, switchNovelToLibrary, refetchLibrary } =
+    useLibraryContext();
   const [inActivity, setInActivity] = useState<Record<string, boolean>>({});
+
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<(NovelItem | NovelInfo)[]>(
+    [],
+  );
 
   const { hideInLibraryItems } = useBrowseSettings();
 
@@ -84,19 +99,129 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     [navigation, pluginId],
   );
 
+  const toggleMultiSelectMode = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    setSelectedItems([]);
+  };
+
+  const getItemKey = useCallback(
+    (item: NovelItem | NovelInfo) => {
+      return `${pluginId}-${item.path}-${item.name.replace(/\s+/g, '_')}`;
+    },
+    [pluginId],
+  );
+
+  const toggleItemSelection = (item: NovelItem | NovelInfo) => {
+    const itemKey = getItemKey(item);
+    setSelectedItems(prev => {
+      const isSelected = prev.some(
+        selected => getItemKey(selected) === itemKey,
+      );
+      if (isSelected) {
+        return prev.filter(selected => getItemKey(selected) !== itemKey);
+      } else {
+        return [...prev, item];
+      }
+    });
+  };
+
+  const handleImportSelected = useCallback(async () => {
+    if (selectedItems.length === 0) return;
+
+    const urls = selectedItems.map(item => {
+      const baseUrl = site.endsWith('/') ? site.slice(0, -1) : site;
+      return `${baseUrl}${item.path}`;
+    });
+
+    const urlsText = urls.join('\n');
+    await Clipboard.setStringAsync(urlsText);
+
+    ServiceManager.manager.addTask({
+      name: 'MASS_IMPORT',
+      data: { urls },
+    });
+
+    showToast(
+      getString('browseScreen.urlsCopiedAndImported', {
+        count: selectedItems.length,
+      }),
+    );
+
+    setIsMultiSelectMode(false);
+    setSelectedItems([]);
+  }, [selectedItems, site]);
+
+  const selectAllItems = () => {
+    setSelectedItems([...novelList]);
+  };
+
+  const clearAllSelections = () => {
+    setSelectedItems([]);
+  };
+
+  React.useEffect(() => {
+    if (isMultiSelectMode && selectedItems.length > 0) {
+      const validSelections = selectedItems.filter(selectedItem =>
+        novelList.some(
+          novelItem => getItemKey(novelItem) === getItemKey(selectedItem),
+        ),
+      );
+      if (validSelections.length !== selectedItems.length) {
+        setSelectedItems(validSelections);
+      }
+    }
+  }, [novelList, isMultiSelectMode, selectedItems, getItemKey]);
+
+  React.useEffect(() => {
+    const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
+      if (task && !task.isRunning) {
+        refetchLibrary();
+      }
+    });
+
+    return unsubscribe;
+  }, [refetchLibrary]);
+
   const { bottom, right } = useSafeAreaInsets();
   const filterSheetRef = useRef<BottomSheetModal | null>(null);
   return (
     <SafeAreaView>
       <SearchbarV2
         searchText={searchText}
-        leftIcon="magnify"
-        placeholder={`${getString('common.search')} ${pluginName}`}
+        leftIcon={isMultiSelectMode ? 'close' : 'magnify'}
+        placeholder={
+          isMultiSelectMode
+            ? `${selectedItems.length} selected`
+            : `${getString('common.search')} ${pluginName}`
+        }
         onChangeText={onChangeText}
         onSubmitEditing={onSubmitEditing}
         clearSearchbar={handleClearSearchbar}
-        handleBackAction={navigation.goBack}
-        rightIcons={[{ iconName: 'earth', onPress: handleOpenWebView }]}
+        handleBackAction={
+          isMultiSelectMode ? toggleMultiSelectMode : navigation.goBack
+        }
+        rightIcons={
+          isMultiSelectMode
+            ? [
+                {
+                  iconName:
+                    selectedItems.length === novelList.length
+                      ? 'checkbox-multiple-blank-outline'
+                      : 'checkbox-multiple-marked',
+                  onPress:
+                    selectedItems.length === novelList.length
+                      ? clearAllSelections
+                      : selectAllItems,
+                },
+              ]
+            : [
+                {
+                  iconName: 'checkbox-multiple-outline',
+                  onPress: toggleMultiSelectMode,
+                },
+                { iconName: 'earth', onPress: handleOpenWebView },
+              ]
+        }
         theme={theme}
       />
       {isLoading || isSearching ? (
@@ -134,18 +259,31 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                 theme={theme}
                 libraryStatus={inLibrary}
                 inActivity={inActivity[item.path]}
-                onPress={() => navigateToNovel(item)}
-                isSelected={false}
+                onPress={() => {
+                  if (isMultiSelectMode) {
+                    toggleItemSelection(item);
+                  } else {
+                    navigateToNovel(item);
+                  }
+                }}
+                isSelected={
+                  isMultiSelectMode &&
+                  selectedItems.some(
+                    selected => getItemKey(selected) === getItemKey(item),
+                  )
+                }
                 addSkeletonLoading={
                   (hasNextPage && !searchText) ||
                   (hasNextSearchPage && Boolean(searchText))
                 }
                 onLongPress={async () => {
-                  setInActivity(prev => ({ ...prev, [item.path]: true }));
-
-                  await switchNovelToLibrary(item.path, pluginId);
-
-                  setInActivity(prev => ({ ...prev, [item.path]: false }));
+                  if (isMultiSelectMode) {
+                    toggleItemSelection(item);
+                  } else {
+                    setInActivity(prev => ({ ...prev, [item.path]: true }));
+                    await switchNovelToLibrary(item.path, pluginId);
+                    setInActivity(prev => ({ ...prev, [item.path]: false }));
+                  }
                 }}
                 selectedNovelIds={[]}
               />
@@ -163,7 +301,29 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
           onEndReachedThreshold={1.5}
         />
       )}
-      {!showLatestNovels && filterValues && !searchText ? (
+      {isMultiSelectMode && selectedItems.length > 0 ? (
+        <FAB
+          icon={'import'}
+          style={[
+            styles.importFab,
+            {
+              backgroundColor: theme.primary,
+              marginBottom: bottom + 16,
+              marginRight: right + 16,
+            },
+          ]}
+          label={getString('browseScreen.importSelected', {
+            count: selectedItems.length,
+          })}
+          uppercase={false}
+          color={theme.onPrimary}
+          onPress={handleImportSelected}
+        />
+      ) : null}
+      {!showLatestNovels &&
+      filterValues &&
+      !searchText &&
+      !isMultiSelectMode ? (
         <>
           <FAB
             icon={'filter-variant'}
@@ -197,6 +357,12 @@ export default BrowseSourceScreen;
 
 const styles = StyleSheet.create({
   filterFab: {
+    bottom: 0,
+    margin: 16,
+    position: 'absolute',
+    right: 0,
+  },
+  importFab: {
     bottom: 0,
     margin: 16,
     position: 'absolute',
