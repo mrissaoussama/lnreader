@@ -151,6 +151,16 @@ export const prepareBackupData = async (
     cacheDirPath + '/' + BackupEntryName.SETTING,
     JSON.stringify(backupMMKVData()),
   );
+
+  // notes
+  const { getAllNotesForBackup } = await import(
+    '@database/queries/NotesQueries'
+  );
+  const notes = await getAllNotesForBackup();
+  await NativeFile.writeFile(
+    cacheDirPath + '/' + BackupEntryName.NOTES,
+    JSON.stringify(notes),
+  );
 };
 
 export const restoreData = async (cacheDirPath: string) => {
@@ -176,6 +186,16 @@ export const restoreData = async (cacheDirPath: string) => {
       NativeFile.readFile(cacheDirPath + '/' + BackupEntryName.SETTING),
     ),
   );
+
+  // notes
+  const notesPath = cacheDirPath + '/' + BackupEntryName.NOTES;
+  if (await NativeFile.exists(notesPath)) {
+    const { restoreNotesFromBackup } = await import(
+      '@database/queries/NotesQueries'
+    );
+    const notesData = JSON.parse(await NativeFile.readFile(notesPath));
+    await restoreNotesFromBackup(notesData);
+  }
 };
 
 const restoreCategories = async (
@@ -429,6 +449,15 @@ export const restoreDataMerge = async (
     await restoreNovelsAdvanced(backupDir, result, setMeta);
 
     await restoreCategories(backupDir, setMeta);
+
+    const notesPath = backupDir + '/' + BackupEntryName.NOTES;
+    if (await NativeFile.exists(notesPath)) {
+      const { restoreNotesFromBackup } = await import(
+        '@database/queries/NotesQueries'
+      );
+      const notesData = JSON.parse(await NativeFile.readFile(notesPath));
+      await restoreNotesFromBackup(notesData);
+    }
 
     if (setMeta) {
       setMeta(meta => ({

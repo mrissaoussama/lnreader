@@ -1,5 +1,5 @@
 import { LibraryFilter } from '@screens/library/constants/constants';
-import { LibraryNovelInfo, NovelInfo } from '../types';
+import { LibraryNovelInfo, NovelInfo, DBNovelInfo } from '../types';
 import { getAllSync } from '../utils/helpers';
 
 export const getLibraryNovelsFromDb = (
@@ -7,8 +7,12 @@ export const getLibraryNovelsFromDb = (
   filter?: string,
   searchText?: string,
   downloadedOnlyMode?: boolean,
-): NovelInfo[] => {
-  let query = 'SELECT * FROM Novel WHERE inLibrary = 1';
+): DBNovelInfo[] => {
+  let query = `SELECT n.*, 
+                      CASE WHEN nt.novelId IS NOT NULL THEN 1 ELSE 0 END as hasNote
+               FROM Novel n
+               LEFT JOIN Note nt ON n.id = nt.novelId
+               WHERE n.inLibrary = 1`;
 
   if (filter) {
     query += ` AND ${filter} `;
@@ -18,7 +22,7 @@ export const getLibraryNovelsFromDb = (
   }
 
   if (searchText) {
-    query += ' AND name LIKE ? ';
+    query += ' AND n.name LIKE ? ';
   }
 
   if (sortOrder) {
@@ -27,7 +31,11 @@ export const getLibraryNovelsFromDb = (
   return getAllSync<NovelInfo>([query, [searchText ?? '']]);
 };
 
-const getLibraryWithCategoryQuery = 'SELECT * FROM Novel WHERE inLibrary = 1';
+const getLibraryWithCategoryQuery = `SELECT n.*, 
+                                                  CASE WHEN nt.novelId IS NOT NULL THEN 1 ELSE 0 END as hasNote
+                                           FROM Novel n
+                                           LEFT JOIN Note nt ON n.id = nt.novelId
+                                           WHERE n.inLibrary = 1`;
 // `
 //   SELECT *
 //   FROM
@@ -78,7 +86,7 @@ export const getLibraryWithCategory = ({
   }
 
   if (searchText) {
-    query += ' AND name LIKE ? ';
+    query += ' AND n.name LIKE ? ';
     preparedArgument.push(`%${searchText}%`);
   }
 

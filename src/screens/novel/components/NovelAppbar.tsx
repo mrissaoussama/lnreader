@@ -68,6 +68,8 @@ const NovelAppbar = ({
   goBack,
   shareNovel,
   showJumpToChapterModal,
+  showNotesModal,
+  hasNote,
   headerOpacity,
 }: {
   novel: NovelInfo | undefined;
@@ -82,6 +84,8 @@ const NovelAppbar = ({
   goBack: () => void;
   shareNovel: () => void;
   showJumpToChapterModal: (arg: boolean) => void;
+  showNotesModal: () => void;
+  hasNote: boolean;
   headerOpacity: SharedValue<number>;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
@@ -178,6 +182,10 @@ const NovelAppbar = ({
             onPress={() => {
               showJumpToChapterModal(true);
             }}
+          />
+          <AppbarAction
+            icon={hasNote ? 'note-text' : 'note-text-outline'}
+            onPress={showNotesModal}
           />
           {!isLocal && (
             <Menu
