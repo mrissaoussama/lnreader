@@ -118,6 +118,12 @@ export interface StringMap {
   'browseScreen.updatedTo': 'string';
   'browseScreen.settings.title': 'string';
   'browseScreen.settings.description': 'string';
+  'browseScreen.filterPresets.savePreset': 'string';
+  'browseScreen.filterPresets.presetName': 'string';
+  'browseScreen.filterPresets.managePresets': 'string';
+  'browseScreen.filterPresets.noPresets': 'string';
+  'browseScreen.filterPresets.loadPreset': 'string';
+  'browseScreen.filterPresets.deletePreset': 'string';
   'browseSettings': 'string';
   'browseSettingsScreen.concurrentSearches': 'string';
   'browseSettingsScreen.multi': 'string';

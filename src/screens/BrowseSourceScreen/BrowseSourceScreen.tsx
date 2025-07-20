@@ -185,6 +185,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
             filters={filterValues}
             setFilters={setFilters}
             clearFilters={clearFilters}
+            pluginId={pluginId}
           />
         </>
       ) : null}
