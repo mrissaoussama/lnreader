@@ -204,6 +204,7 @@ const NovelInfoHeader = ({
           }
           handleTrackerSheet={() => trackerSheetRef.current?.present()}
           theme={theme}
+          trackerSheetRef={trackerSheetRef}
         />
         {isLoading && (!novel.genres || !novel.summary) ? (
           <NovelMetaSkeleton />
@@ -301,6 +302,9 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 16,
+    paddingHorizontal: 16,
+  },
+  summaryContainer: {
     paddingHorizontal: 16,
   },
 });

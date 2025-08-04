@@ -52,6 +52,13 @@ export interface AppSettings {
 
   hideBackdrop: boolean;
   defaultChapterSort: string;
+
+  /**
+   * Tracker settings
+   */
+
+  autoSyncTracker: boolean;
+  autoSyncChapterThreshold: number;
 }
 
 export interface BrowseSettings {
@@ -159,6 +166,13 @@ const initialAppSettings: AppSettings = {
 
   hideBackdrop: false,
   defaultChapterSort: 'ORDER BY position ASC',
+
+  /**
+   * Tracker settings
+   */
+
+  autoSyncTracker: false,
+  autoSyncChapterThreshold: 3,
 };
 
 const initialBrowseSettings: BrowseSettings = {

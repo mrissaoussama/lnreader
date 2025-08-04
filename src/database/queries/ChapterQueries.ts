@@ -371,3 +371,35 @@ export const isChapterDownloaded = (chapterId: number) =>
     'SELECT * FROM Chapter WHERE id = ? AND isDownloaded = 1',
     chapterId,
   );
+export const getTotalReadChaptersCount = novelId => {
+  const result =
+    db.getFirstSync(
+      `SELECT COUNT(*) as totalRead
+     FROM Chapter 
+     WHERE novelId = ? AND unread = 0`,
+      novelId,
+    )?.totalRead ?? 0;
+  return result;
+};
+export const getHighestReadChapterNumber = novelId => {
+  const resultByNumber =
+    db.getFirstSync(
+      `SELECT 
+      COALESCE(MAX(chapterNumber), 0) as highestChapter
+     FROM Chapter 
+     WHERE novelId = ? AND unread = 0 AND chapterNumber IS NOT NULL`,
+      novelId,
+    )?.highestChapter ?? 0;
+  if (resultByNumber === 0) {
+    const resultByPosition =
+      db.getFirstSync(
+        `SELECT 
+        COALESCE(MAX(position), 0) as highestPosition
+       FROM Chapter 
+       WHERE novelId = ? AND unread = 0`,
+        novelId,
+      )?.highestPosition ?? 0;
+    return resultByPosition > 0 ? resultByPosition + 1 : 0;
+  }
+  return resultByNumber;
+};

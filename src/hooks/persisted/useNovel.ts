@@ -36,7 +36,7 @@ import { NOVEL_STORAGE } from '@utils/Storages';
 import { useAppSettings } from './useSettings';
 import NativeFile from '@specs/NativeFile';
 import { useLibraryContext } from '@components/Context/LibraryContext';
-
+import { useProgressSync } from '@services/Trackers/ProgressSyncService';
 // #region constants
 
 // store key: '<PREFIX>_<novel.pluginId>_<novel.path>',
@@ -148,6 +148,7 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
   );
 
   const { defaultChapterSort } = useAppSettings();
+  const { syncProgress, syncVisit } = useProgressSync(novel);
 
   const novelPath = novel?.path ?? (novelOrPath as string);
 
@@ -160,16 +161,9 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
     `${LAST_READ_PREFIX}_${pluginId}_${novelPath}`,
   );
   const [novelSettings = defaultNovelSettings, setNovelSettings] =
-    useMMKVObject<NovelSettings>(
-      `${NOVEL_SETTINSG_PREFIX}_${pluginId}_${novelPath}`,
-    );
-
-  const [chapters, _setChapters] = useState<ChapterInfo[]>([]);
-  const [batchInformation, setBatchInformation] = useState<{
-    batch: number;
-    total: number;
-    totalChapters?: number;
-  }>(
+    useMMKVObject(`${NOVEL_SETTINSG_PREFIX}_${pluginId}_${novelPath}`);
+  const [chapters, _setChapters] = useState([]);
+  const [batchInformation, setBatchInformation] = useState(
     typeof novelOrPath === 'object'
       ? {
           batch: 0,
@@ -331,9 +325,7 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
       if (chapterCount) {
         try {
           newChapters = getPageChaptersBatched(...config) || [];
-        } catch (error) {
-          console.error('teaser', error);
-        }
+        } catch (error) {}
       }
       // Fetch next page if no chapters
       else if (Number(page)) {
@@ -383,9 +375,7 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
             page,
             nextBatch,
           ) || [];
-      } catch (error) {
-        console.error('teaser', error);
-      }
+      } catch (error) {}
       setBatchInformation({ ...batchInformation, batch: nextBatch });
       extendChapters(newChapters);
     }
@@ -445,6 +435,9 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
           if (c.id !== chapterId) {
             return c;
           }
+          if (novel?.id && c.chapterNumber) {
+            syncProgress(c.chapterNumber, false, c.name, c.path);
+          }
           return {
             ...c,
             unread: false,
@@ -452,7 +445,7 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
         }),
       );
     },
-    [mutateChapters],
+    [mutateChapters, novel?.id, syncProgress],
   );
 
   const updateChapterProgress = useCallback(
@@ -464,6 +457,9 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
           if (c.id !== chapterId) {
             return c;
           }
+          if (novel?.id && c.chapterNumber && progress >= 100) {
+            syncProgress(c.chapterNumber, true, c.name, c.path);
+          }
           return {
             ...c,
             progress,
@@ -471,9 +467,8 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
         }),
       );
     },
-    [mutateChapters],
+    [mutateChapters, novel?.id, syncProgress],
   );
-
   const markChaptersRead = useCallback(
     (_chapters: ChapterInfo[]) => {
       const chapterIds = _chapters.map(chapter => chapter.id);
@@ -628,9 +623,12 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
         setFetching(false);
       });
   }, [getChapters, novel, novelOrPath]);
-
   // #endregion
-
+  useEffect(() => {
+    if (novel?.id && lastRead?.chapterNumber) {
+      syncVisit(lastRead.chapterNumber);
+    }
+  }, [novel?.id, lastRead?.chapterNumber, syncVisit]);
   return useMemo(
     () => ({
       loading,

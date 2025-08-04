@@ -16,6 +16,8 @@ import { migrateNovel, MigrateNovelData } from './migrate/migrateNovel';
 import { downloadChapter } from './download/downloadChapter';
 import { askForPostNotificationsPermission } from '@utils/askForPostNoftificationsPermission';
 import { massImport } from './updates/massImport';
+import { ProgressSyncService } from './Trackers/ProgressSyncService';
+
 import { createBackup, restoreBackup } from './backup/local';
 
 type taskNames =
@@ -29,7 +31,10 @@ type taskNames =
   | 'LOCAL_RESTORE'
   | 'MIGRATE_NOVEL'
   | 'DOWNLOAD_CHAPTER'
-  | 'MASS_IMPORT';
+  | 'MASS_IMPORT'
+  | 'SYNC_FROM_TRACKERS'
+  | 'SYNC_TO_TRACKERS'
+  | 'SYNC_ALL_TRACKERS';
 
 export type BackgroundTask =
   | {
@@ -300,6 +305,106 @@ export default class ServiceManager {
             : { urls: [] };
         return massImport(massImportData, this.setMeta.bind(this));
       }
+      case 'SYNC_FROM_TRACKERS': {
+        const data = task.task.data;
+        const forceUpdate = data?.forceUpdate || false;
+        const results = await ProgressSyncService.syncFromTrackers(
+          syncProgress => {
+            this.setMeta(meta => ({
+              ...meta,
+              progress: syncProgress.processed / syncProgress.total,
+              progressText: `Syncing ${syncProgress.currentNovel} (${syncProgress.processed}/${syncProgress.total})`,
+            }));
+          },
+          forceUpdate,
+        );
+        this.setMeta(meta => ({
+          ...meta,
+          progress: 1,
+          progressText: `Sync completed. ${
+            results.novels.length
+          } novels processed (${
+            results.novels.filter(
+              n =>
+                n.appChange &&
+                n.appChange.oldProgress !== n.appChange.newProgress,
+            ).length
+          } app updates, ${results.novels.filter(n => n.error).length} errors)`,
+          isRunning: false,
+          result: results,
+        }));
+        return results;
+      }
+      case 'SYNC_TO_TRACKERS': {
+        const data = task.task.data;
+        const forceUpdate = data?.forceUpdate || false;
+        const results = await ProgressSyncService.syncToTrackers(
+          syncProgress => {
+            this.setMeta(meta => ({
+              ...meta,
+              progress: syncProgress.processed / syncProgress.total,
+              progressText: `Syncing ${syncProgress.currentNovel} (${syncProgress.processed}/${syncProgress.total})`,
+            }));
+          },
+          forceUpdate,
+        );
+        this.setMeta(meta => ({
+          ...meta,
+          progress: 1,
+          progressText: `Sync completed. ${
+            results.novels.length
+          } novels processed (${
+            results.novels.filter(
+              n =>
+                n.trackerChanges &&
+                n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+            ).length
+          } tracker updates, ${
+            results.novels.filter(n => n.error).length
+          } errors)`,
+          isRunning: false,
+          result: results,
+        }));
+        return results;
+      }
+      case 'SYNC_ALL_TRACKERS': {
+        const data = task.task.data;
+        const forceUpdate = data?.forceUpdate || false;
+        const results = await ProgressSyncService.syncAllTrackers(
+          syncProgress => {
+            this.setMeta(meta => ({
+              ...meta,
+              progress: syncProgress.processed / syncProgress.total,
+              progressText: `Syncing ${syncProgress.currentNovel} (${syncProgress.processed}/${syncProgress.total})`,
+            }));
+          },
+          forceUpdate,
+        );
+        this.setMeta(meta => ({
+          ...meta,
+          progress: 1,
+          progressText: `Sync completed. ${
+            results.novels.length
+          } novels processed (${
+            results.novels.filter(
+              n =>
+                n.appChange &&
+                n.appChange.oldProgress !== n.appChange.newProgress,
+            ).length
+          } app updates, ${
+            results.novels.filter(
+              n =>
+                n.trackerChanges &&
+                n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+            ).length
+          } tracker updates, ${
+            results.novels.filter(n => n.error).length
+          } errors)`,
+          isRunning: false,
+          result: results,
+        }));
+        return results;
+      }
     }
   }
   static async launch() {
@@ -317,6 +422,9 @@ export default class ServiceManager {
       'MIGRATE_NOVEL': 0,
       'DOWNLOAD_CHAPTER': 0,
       'MASS_IMPORT': 0,
+      'SYNC_FROM_TRACKERS': 0,
+      'SYNC_TO_TRACKERS': 0,
+      'SYNC_ALL_TRACKERS': 0,
     };
     const startingTasks = manager.getTaskList();
     const tasksSet = new Set(startingTasks.map(t => t.id));
@@ -397,6 +505,12 @@ export default class ServiceManager {
         return 'Local Restore';
       case 'MASS_IMPORT':
         return 'Mass Import';
+      case 'SYNC_FROM_TRACKERS':
+        return 'Sync from Trackers';
+      case 'SYNC_TO_TRACKERS':
+        return 'Sync to Trackers';
+      case 'SYNC_ALL_TRACKERS':
+        return 'Sync All Trackers';
       default:
         return 'Unknown Task';
     }
