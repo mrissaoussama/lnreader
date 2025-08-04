@@ -25,7 +25,7 @@
     "android": {
       "javaPackageName": "com.lnreader.spec"
     },
-    "ios": {
+    "ios": { 
       "modulesProvider": {
         "NativeEpubUtil": "RCTNativeEpubUtil",
         "NativeFile": "RCTNativeFile",
@@ -52,7 +52,6 @@
     "dayjs": "^1.11.10",
     "expo": "~53.0.8",
     "expo-clipboard": "~7.1.4",
-    "expo-crypto": "~14.1.5",
     "expo-document-picker": "~13.1.5",
     "expo-file-system": "~18.1.8",
     "expo-haptics": "~14.1.4",
