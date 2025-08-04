@@ -5,21 +5,9 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  StyleProp,
-  StyleSheet,
-  Text,
-  TextStyle,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
-import {
-  NavigationState,
-  SceneRendererProps,
-  TabBar,
-  TabView,
-} from 'react-native-tab-view';
+import { SceneRendererProps, TabBar, TabView } from 'react-native-tab-view';
 import Color from 'color';
 
 import { SearchbarV2, Button, SafeAreaView } from '@components/index';
@@ -50,30 +38,9 @@ import useImport from '@hooks/persisted/useImport';
 import { ThemeColors } from '@theme/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
 import * as Clipboard from 'expo-clipboard';
+import TrackerSyncDialog from './components/TrackerSyncDialog';
 import { showToast } from '@utils/showToast';
-import { ImportResult } from './components/MassImportModal/MassImportSummaryModal';
-
-type State = NavigationState<{
-  key: string;
-  title: string;
-}>;
-
-type TabViewLabelProps = {
-  route: {
-    id: number;
-    name: string;
-    sort: number;
-    novelIds: number[];
-    key: string;
-    title: string;
-  };
-  labelText?: string;
-  focused: boolean;
-  color: string;
-  allowFontScaling?: boolean;
-  style?: StyleProp<TextStyle>;
-};
-
+import { ImportResult } from '@services/updates/massImport';
 const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
   const { searchText, setSearchText, clearSearchbar } = useSearch();
   const theme = useTheme();
@@ -109,7 +76,9 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     setTrue: showMassImportModal,
     setFalse: closeMassImportModal,
   } = useBoolean();
-
+  const [trackerSyncDialogVisible, setTrackerSyncDialogVisible] =
+    useState(false);
+  const [trackerSyncType, setTrackerSyncType] = useState('from');
   const handleClearSearchbar = () => {
     clearSearchbar();
   };
@@ -161,8 +130,155 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         refetchLibrary();
       }
     });
-
-    return () => unsubscribe();
+    const generateSyncReport = (results, type) => {
+      const timestamp = new Date().toLocaleString();
+      let report = `Tracker Sync Report (${type.toUpperCase()})\n`;
+      report += `Generated: ${timestamp}\n\n`;
+      const stats = {
+        total: results.novels?.length || 0,
+        errors: 0,
+        appUpdated: 0,
+        trackersUpdated: 0,
+        skipped: 0,
+        trackerChanges: 0,
+      };
+      results.novels?.forEach(result => {
+        if (result.error) {
+          stats.errors++;
+        } else {
+          if (
+            result.appChange &&
+            result.appChange.oldProgress !== result.appChange.newProgress
+          ) {
+            stats.appUpdated++;
+          }
+          let hasTrackerChanges = false;
+          result.trackerChanges?.forEach(change => {
+            if (change.oldProgress !== change.newProgress) {
+              hasTrackerChanges = true;
+              stats.trackerChanges++;
+            }
+          });
+          if (hasTrackerChanges) {
+            stats.trackersUpdated++;
+          }
+          if (
+            !result.appChange &&
+            (!result.trackerChanges || result.trackerChanges.length === 0)
+          ) {
+            stats.skipped++;
+          } else if (
+            result.appChange &&
+            result.appChange.oldProgress === result.appChange.newProgress &&
+            (!result.trackerChanges ||
+              result.trackerChanges.every(c => c.oldProgress === c.newProgress))
+          ) {
+            stats.skipped++;
+          }
+        }
+      });
+      report += 'SUMMARY:\n';
+      report += `Total novels processed: ${stats.total}\n`;
+      report += `App progress updated: ${stats.appUpdated}\n`;
+      report += `Novels with tracker updates: ${stats.trackersUpdated}\n`;
+      report += `Total tracker changes: ${stats.trackerChanges}\n`;
+      report += `Skipped (no changes): ${stats.skipped}\n`;
+      report += `Errors: ${stats.errors}\n\n`;
+      report += 'DETAILS:\n';
+      results.novels?.forEach((result, resultIndex) => {
+        report += `${resultIndex + 1}. ${result.novelName}\n`;
+        if (result.error) {
+          report += `   ❌ Error: ${result.error}\n`;
+        } else {
+          let hasAnyChanges = false;
+          if (result.appChange) {
+            const appIcon =
+              result.appChange.oldProgress === result.appChange.newProgress
+                ? '✅'
+                : '🔄';
+            report += `   📱 App: ${result.appChange.oldProgress} → ${result.appChange.newProgress} ${appIcon}\n`;
+            if (result.appChange.oldProgress !== result.appChange.newProgress) {
+              hasAnyChanges = true;
+            }
+          }
+          result.trackerChanges?.forEach(change => {
+            const icon =
+              change.oldProgress === change.newProgress ? '✅' : '🔄';
+            report += `   ${icon} ${change.tracker}: ${change.oldProgress} → ${change.newProgress}\n`;
+            if (change.oldProgress !== change.newProgress) {
+              hasAnyChanges = true;
+            }
+          });
+          if (!hasAnyChanges) {
+            report += '   ⏭️ No changes needed\n';
+          }
+        }
+        report += '\n';
+      });
+      return report;
+    };
+    const syncObservers = [
+      ServiceManager.manager.observe('SYNC_FROM_TRACKERS', task => {
+        if (task && !task.meta.isRunning && task.meta.result) {
+          const report = generateSyncReport(task.meta.result, 'from');
+          Clipboard.setStringAsync(report);
+          const novels = task.meta.result.novels || [];
+          const appUpdated = novels.filter(
+            n =>
+              n.appChange &&
+              n.appChange.oldProgress !== n.appChange.newProgress,
+          ).length;
+          const errors = novels.filter(n => n.error).length;
+          showToast(
+            `Sync from trackers completed! ${appUpdated} app updates, ${errors} errors. Report copied to clipboard.`,
+          );
+          refetchLibrary();
+        }
+      }),
+      ServiceManager.manager.observe('SYNC_TO_TRACKERS', task => {
+        if (task && !task.meta.isRunning && task.meta.result) {
+          const report = generateSyncReport(task.meta.result, 'to');
+          Clipboard.setStringAsync(report);
+          const novels = task.meta.result.novels || [];
+          const trackersUpdated = novels.filter(
+            n =>
+              n.trackerChanges &&
+              n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+          ).length;
+          const errors = novels.filter(n => n.error).length;
+          showToast(
+            `Sync to trackers completed! ${trackersUpdated} novels updated, ${errors} errors. Report copied to clipboard.`,
+          );
+          refetchLibrary();
+        }
+      }),
+      ServiceManager.manager.observe('SYNC_ALL_TRACKERS', task => {
+        if (task && !task.meta.isRunning && task.meta.result) {
+          const report = generateSyncReport(task.meta.result, 'all');
+          Clipboard.setStringAsync(report);
+          const novels = task.meta.result.novels || [];
+          const appUpdated = novels.filter(
+            n =>
+              n.appChange &&
+              n.appChange.oldProgress !== n.appChange.newProgress,
+          ).length;
+          const trackersUpdated = novels.filter(
+            n =>
+              n.trackerChanges &&
+              n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+          ).length;
+          const errors = novels.filter(n => n.error).length;
+          showToast(
+            `Bidirectional sync completed! ${appUpdated} app updates, ${trackersUpdated} tracker updates, ${errors} errors. Report copied to clipboard.`,
+          );
+          refetchLibrary();
+        }
+      }),
+    ];
+    return () => {
+      unsubscribe();
+      syncObservers.forEach(unsub => unsub());
+    };
   }, [refetchLibrary]);
 
   useEffect(
@@ -192,7 +308,10 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       });
     }
   }
-
+  const showTrackerSyncConfirmation = syncType => {
+    setTrackerSyncType(syncType);
+    setTrackerSyncDialogVisible(true);
+  };
   const pickAndImport = useCallback(() => {
     DocumentPicker.getDocumentAsync({
       type: 'application/epub+zip',
@@ -406,6 +525,18 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             title: getString('libraryScreen.extraMenu.openRandom'),
             onPress: openRandom,
           },
+          {
+            title: 'Sync from Trackers',
+            onPress: () => showTrackerSyncConfirmation('from'),
+          },
+          {
+            title: 'Sync to Trackers',
+            onPress: () => showTrackerSyncConfirmation('to'),
+          },
+          {
+            title: 'Sync All Trackers',
+            onPress: () => showTrackerSyncConfirmation('all'),
+          },
         ]}
         theme={theme}
       />
@@ -480,6 +611,11 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       <MassImportModal
         visible={massImportModalVisible}
         closeModal={closeMassImportModal}
+      />
+      <TrackerSyncDialog
+        visible={trackerSyncDialogVisible}
+        onDismiss={() => setTrackerSyncDialogVisible(false)}
+        syncType={trackerSyncType}
       />
       <LibraryBottomSheet
         bottomSheetRef={bottomSheetRef}

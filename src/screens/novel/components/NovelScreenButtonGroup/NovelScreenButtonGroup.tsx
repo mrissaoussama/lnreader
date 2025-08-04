@@ -9,9 +9,9 @@ import { ThemeColors } from '@theme/types';
 import { getString } from '@strings/translations';
 import SetCategoryModal from '../SetCategoriesModal';
 import { NovelScreenProps } from '@navigators/types';
-import { useTrackedNovel, useTracker } from '@hooks/persisted';
 import Animated, { ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { MaterialDesignIconName } from '@type/icon';
+import { useTrackedNovel, useTracker } from '@hooks/persisted';
 
 const NButton = ({
   onPress,

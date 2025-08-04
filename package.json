@@ -7,10 +7,10 @@
     "ios": "react-native run-ios",
     "prestart": "node scripts/setEnvFile.cjs Debug",
     "start": "react-native start",
-    "lint": "eslint ./src --ext .js,.jsx,.ts,.tsx",
+    "lint": "eslint ./src --ext .js,.jsx,.ts,.tsx --fix",
     "type-check": "tsc --noEmit",
     "prettier": "prettier --write \"./src/**/*.{js,jsx,ts,tsx}\" ./scripts",
-    "buildRelease": "node scripts/setEnvFile.cjs Release && cd android && ./gradlew clean && ./gradlew assembleRelease",
+    "buildRelease": "node scripts/setEnvFile.cjs Release && cd android && gradlew.bat clean && gradlew.bat assembleRelease",
     "open": "open ./android/app/build/outputs/apk/release/",
     "strings": "node scripts/stringTypes.cjs",
     "prepare": "husky install",
@@ -23,7 +23,7 @@
     "android": {
       "javaPackageName": "com.lnreader.spec"
     },
-    "ios": { 
+    "ios": {
       "modulesProvider": {
         "NativeEpubUtil": "RCTNativeEpubUtil",
         "NativeFile": "RCTNativeFile",
@@ -50,6 +50,7 @@
     "dayjs": "^1.11.10",
     "expo": "~53.0.8",
     "expo-clipboard": "~7.1.4",
+    "expo-crypto": "~14.1.5",
     "expo-document-picker": "~13.1.5",
     "expo-file-system": "~18.1.8",
     "expo-haptics": "~14.1.4",
@@ -64,6 +65,7 @@
     "expo-web-browser": "~14.1.6",
     "htmlparser2": "^10.0.0",
     "i18n-js": "^4.5.0",
+    "lnreader": "file:",
     "lodash-es": "^4.17.21",
     "lottie-ios": "^3.2.3",
     "protobufjs": "^7.2.6",

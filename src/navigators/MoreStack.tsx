@@ -5,7 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 // Screens
 import About from '../screens/more/About';
 import Settings from '../screens/settings/SettingsScreen';
-import TrackerSettings from '../screens/settings/SettingsTrackerScreen';
+import TrackerSettings from '../screens/settings/TrackerSettingsScreen';
+import NovelUpdatesSettings from '../screens/settings/NovelUpdatesSettingsScreen';
 import ReaderSettings from '../screens/settings/SettingsReaderScreen/SettingsReaderScreen';
 import BackupSettings from '../screens/settings/SettingsBackupScreen';
 import AdvancedSettings from '../screens/settings/SettingsAdvancedScreen';
@@ -31,6 +32,10 @@ const SettingsStack = () => (
     <Stack.Screen name="GeneralSettings" component={GeneralSettings} />
     <Stack.Screen name="ReaderSettings" component={ReaderSettings} />
     <Stack.Screen name="TrackerSettings" component={TrackerSettings} />
+    <Stack.Screen
+      name="NovelUpdatesSettings"
+      component={NovelUpdatesSettings}
+    />
     <Stack.Screen name="BackupSettings" component={BackupSettings} />
     <Stack.Screen name="AppearanceSettings" component={AppearanceSettings} />
     <Stack.Screen name="AdvancedSettings" component={AdvancedSettings} />

@@ -28,7 +28,7 @@ import {
 import { createRepositoryTableQuery } from './tables/RepositoryTable';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { showToast } from '@utils/showToast';
-
+import { createTrackTableQuery } from './tables/TrackTable';
 const dbName = 'lnreader.db';
 
 export const db = SQLite.openDatabaseSync(dbName);
@@ -62,10 +62,11 @@ export const createTables = () => {
       db.runSync(createNotesIndexQuery);
       db.runSync(createNotesTriggerQuery);
       db.runSync(createRepositoryTableQuery);
+      db.runSync(createTrackTableQuery);
       db.runSync(createNovelTriggerQueryInsert);
       db.runSync(createNovelTriggerQueryUpdate);
       db.runSync(createNovelTriggerQueryDelete);
-      db.execSync('PRAGMA user_version = 2');
+      db.execSync('PRAGMA user_version = 4');
     });
   } else {
     if (userVersion < 1) {
@@ -73,6 +74,12 @@ export const createTables = () => {
     }
     if (userVersion < 2) {
       updateToDBVersion2();
+    }
+    if (userVersion < 3) {
+      updateToDBVersion3();
+    }
+    if (userVersion < 4) {
+      updateToDBVersion4();
     }
   }
 };
@@ -124,19 +131,19 @@ function updateToDBVersion1() {
       );
       `);
     db.runSync(`UPDATE Novel
-SET chaptersUnread = (
-    SELECT COUNT(*)
-    FROM Chapter
-    WHERE Chapter.novelId = Novel.id AND Chapter.unread = 1
-);
-`);
+      SET chaptersUnread = (
+          SELECT COUNT(*)
+          FROM Chapter
+          WHERE Chapter.novelId = Novel.id AND Chapter.unread = 1
+      );
+      `);
     db.runSync(`UPDATE Novel
-SET totalChapters = (
-    SELECT COUNT(*)
-    FROM Chapter
-    WHERE Chapter.novelId = Novel.id
-);
-`);
+      SET totalChapters = (
+          SELECT COUNT(*)
+          FROM Chapter
+          WHERE Chapter.novelId = Novel.id
+      );
+      `);
     db.runSync(`UPDATE Novel
       SET lastReadAt = (
           SELECT MAX(readTime)
@@ -167,7 +174,22 @@ function updateToDBVersion2() {
     db.runSync(createNotesTableQuery);
     db.runSync(createNotesIndexQuery);
     db.runSync(createNotesTriggerQuery);
-
+    db.runSync(createRepositoryTableQuery);
+    db.runSync(createNovelTriggerQueryInsert);
+    db.runSync(createNovelTriggerQueryUpdate);
+    db.runSync(createNovelTriggerQueryDelete);
     db.execSync('PRAGMA user_version = 2');
   });
 }
+const updateToDBVersion3 = () => {
+  db.withTransactionSync(() => {
+    db.runSync(createTrackTableQuery);
+    db.execSync('PRAGMA user_version = 3');
+  });
+};
+const updateToDBVersion4 = () => {
+  db.withTransactionSync(() => {
+    db.runSync('ALTER TABLE tracks ADD COLUMN metadata TEXT');
+    db.execSync('PRAGMA user_version = 4');
+  });
+};

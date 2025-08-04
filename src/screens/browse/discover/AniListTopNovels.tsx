@@ -1,66 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  StyleSheet,
-  View,
-  ActivityIndicator,
-  FlatList,
-  ListRenderItem,
-} from 'react-native';
-
+import { StyleSheet, View, ActivityIndicator, FlatList } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-
 import { ErrorView } from '@components/ErrorView/ErrorView';
 import { SafeAreaView, SearchbarV2 } from '@components';
-
 import { showToast } from '@utils/showToast';
 import TrackerNovelCard from './TrackerNovelCard';
 import { useTheme, useTracker } from '@hooks/persisted';
 import TrackerLoading from '../loadingAnimation/TrackerLoading';
-import { queryAniList } from '@services/Trackers/aniList';
 import localeData from 'dayjs/plugin/localeData';
 import dayjs from 'dayjs';
-import { BrowseALScreenProps } from '@navigators/types';
-
-interface ALDate {
-  month: number;
-  year: number;
-}
-
-interface ALNovel {
-  id: number;
-  novelName: string;
-  novelCover: string;
-  score: string;
-  info: string[];
-}
-
+import { queryAniList } from '@services/Trackers/graphql';
 dayjs.extend(localeData);
-
-function formatDate(date: ALDate) {
+function formatDate(date) {
   if (date.year && date.month) {
     return `${dayjs.monthsShort()[date.month - 1]} ${date.year}`;
   }
-
   return '';
 }
-
-function datesEqual(date1: ALDate, date2: ALDate) {
+function datesEqual(date1, date2) {
   return date1.year === date2.year && date1.month === date2.month;
 }
-
-const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
-  const theme = useTheme();
-  const { tracker } = useTracker();
-
-  const [loading, setLoading] = useState(true);
-  const [hasNextPage, setHasNextPage] = useState(true);
-  const [novels, setNovels] = useState<ALNovel[]>([]);
-  const [error, setError] = useState<string>();
-  const [limit, setLimit] = useState(50);
-
-  const [searchText, setSearchText] = useState('');
-
-  const anilistSearchQuery = `query($search: String, $page: Int) {
+const anilistSearchQuery = `query($search: String, $page: Int) {
     Page(page: $page) {
       pageInfo {
         hasNextPage
@@ -87,15 +47,24 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
       }
     }
   }`;
-  const anilistUrl =
-    'https://anilist.co/search/manga?format=NOVEL&sort=POPULARITY_DESC';
-
+const anilistUrl =
+  'https://anilist.co/search/manga?format=NOVEL&sort=POPULARITY_DESC';
+const BrowseALScreen = ({ navigation }) => {
+  const theme = useTheme();
+  const { getTrackerAuth } = useTracker();
+  const [loading, setLoading] = useState(true);
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [novels, setNovels] = useState([]);
+  const [error, setError] = useState();
+  const [limit, setLimit] = useState(50);
+  const [searchText, setSearchText] = useState('');
   const searchAniList = useCallback(
-    async (onlyTop: boolean, page = 1) => {
+    async (onlyTop, page = 1) => {
       try {
-        if (!tracker) {
+        const tracker = getTrackerAuth('AniList');
+        if (!tracker?.accessToken) {
           setLoading(false);
-          setError('Please login!');
+          setError('Please login to AniList in settings!');
           return;
         }
         const { data } = await queryAniList(
@@ -104,17 +73,17 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
             search: onlyTop ? undefined : searchText,
             page,
           },
-          tracker.auth,
+          tracker.accessToken,
         );
-
-        const results = data.Page.media.map((m: any) => {
+        const results = data.Page.media.map(m => {
           return {
             id: m.id,
             novelName: m.title.userPreferred,
             novelCover: m.coverImage.extraLarge,
             score: `${m.averageScore}%`,
             info: [
-              '', // MAL returns an item we don't care about first, so the component ignores the first element
+              '',
+              // MAL returns an item we don't care about first, so the component ignores the first element
               `Light Novel (${m.volumes || '?'} Vols)`,
               `${formatDate(m.startDate)}${
                 datesEqual(m.startDate, m.endDate)
@@ -124,20 +93,18 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
             ],
           };
         });
-
         setHasNextPage(data.Page.pageInfo.hasNextPage);
         setNovels(onlyTop ? before => before.concat(results) : results);
         setLoading(false);
-      } catch (err: any) {
+      } catch (err) {
         setError(err.message);
         setNovels([]);
         setLoading(false);
         showToast(err.message);
       }
     },
-    [anilistSearchQuery, searchText, tracker],
+    [searchText, getTrackerAuth],
   );
-
   const clearSearchbar = () => {
     setNovels([]);
     setHasNextPage(true);
@@ -145,12 +112,10 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
     setLoading(true);
     setSearchText('');
   };
-
   useEffect(() => {
     searchAniList(true);
   }, [searchAniList]);
-
-  const renderItem: ListRenderItem<ALNovel> = ({ item }) => (
+  const renderItem = ({ item }) => (
     <TrackerNovelCard
       novel={item}
       theme={theme}
@@ -161,7 +126,6 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
       }
     />
   );
-
   const ListEmptyComponent = useCallback(
     () => (
       <ErrorView
@@ -182,7 +146,6 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
     ),
     [error, searchAniList, theme],
   );
-
   return (
     <SafeAreaView>
       <SearchbarV2
@@ -229,9 +192,7 @@ const BrowseALScreen = ({ navigation }: BrowseALScreenProps) => {
     </SafeAreaView>
   );
 };
-
 export default BrowseALScreen;
-
 const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
@@ -241,5 +202,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 4,
   },
-  paddingVertical: { paddingVertical: 16 },
+  paddingVertical: {
+    paddingVertical: 16,
+  },
 });
