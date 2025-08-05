@@ -38,6 +38,7 @@ import { SafeAreaView } from '@components';
 import { useNovelContext } from './NovelContext';
 import { FlashList } from '@shopify/flash-list';
 import NotesModal from './components/NotesModal';
+import AlternativeTitlesModal from './components/AlternativeTitlesModal';
 import { hasNote } from '@database/queries/NotesQueries';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
@@ -66,6 +67,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   const [selected, setSelected] = useState<ChapterInfo[]>([]);
   const [editInfoModal, showEditInfoModal] = useState(false);
   const [notesModal, setNotesModal] = useState(false);
+  const [alternativeTitlesModal, setAlternativeTitlesModal] = useState(false);
   const [novelHasNote, setNovelHasNote] = useState(false);
 
   const chapterListRef = useRef<FlashList<ChapterInfo> | null>(null);
@@ -288,6 +290,9 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 shareNovel={shareNovel}
                 showNotesModal={showNotesModal}
                 hasNote={novelHasNote}
+                showAlternativeTitlesModal={() =>
+                  setAlternativeTitlesModal(true)
+                }
                 theme={theme}
                 isLocal={novel?.isLocal ?? route.params?.isLocal}
                 goBack={navigation.goBack}
@@ -381,6 +386,13 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                   novelName={novel.name}
                   theme={theme}
                   onNoteChanged={handleNoteChanged}
+                />
+                <AlternativeTitlesModal
+                  visible={alternativeTitlesModal}
+                  onDismiss={() => setAlternativeTitlesModal(false)}
+                  novelId={novel.id}
+                  novelName={novel.name}
+                  theme={theme}
                 />
                 <DownloadCustomChapterModal
                   modalVisible={dlChapterModalVisible}

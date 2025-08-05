@@ -69,6 +69,7 @@ const NovelAppbar = ({
   shareNovel,
   showJumpToChapterModal,
   showNotesModal,
+  showAlternativeTitlesModal,
   hasNote,
   headerOpacity,
 }: {
@@ -85,6 +86,7 @@ const NovelAppbar = ({
   shareNovel: () => void;
   showJumpToChapterModal: (arg: boolean) => void;
   showNotesModal: () => void;
+  showAlternativeTitlesModal: () => void;
   hasNote: boolean;
   headerOpacity: SharedValue<number>;
 }) => {
@@ -226,6 +228,12 @@ const NovelAppbar = ({
                 label: getString('novelScreen.edit.cover'),
                 onPress: () => {
                   setCustomNovelCover();
+                },
+              },
+              {
+                label: 'View All Alternative Titles',
+                onPress: () => {
+                  showAlternativeTitlesModal();
                 },
               },
             ]}

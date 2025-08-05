@@ -12,6 +12,11 @@ import {
   createNovelTriggerQueryUpdate,
   dropNovelIndexQuery,
 } from './tables/NovelTable';
+import {
+  createAlternativeTitleTableQuery,
+  createAlternativeTitleIndexQuery,
+  dropAlternativeTitleIndexQuery,
+} from './tables/AlternativeTitleTable';
 import { createNovelCategoryTableQuery } from './tables/NovelCategoryTable';
 import {
   createChapterTableQuery,
@@ -52,6 +57,8 @@ export const createTables = () => {
     db.withTransactionSync(() => {
       db.runSync(createNovelTableQuery);
       db.runSync(createNovelIndexQuery);
+      db.runSync(createAlternativeTitleTableQuery);
+      db.runSync(createAlternativeTitleIndexQuery);
       db.runSync(createCategoriesTableQuery);
       db.runSync(createCategoryDefaultQuery);
       db.runSync(createNovelCategoryTableQuery);
@@ -66,7 +73,7 @@ export const createTables = () => {
       db.runSync(createNovelTriggerQueryInsert);
       db.runSync(createNovelTriggerQueryUpdate);
       db.runSync(createNovelTriggerQueryDelete);
-      db.execSync('PRAGMA user_version = 4');
+      db.execSync('PRAGMA user_version = 6');
     });
   } else {
     if (userVersion < 1) {
@@ -80,6 +87,9 @@ export const createTables = () => {
     }
     if (userVersion < 4) {
       updateToDBVersion4();
+    }
+    if (userVersion < 5) {
+      updateToDBVersion5();
     }
   }
 };
@@ -99,9 +109,11 @@ export const recreateDBIndex = () => {
       db.runSync(dropNovelIndexQuery);
       db.runSync(dropChapterIndexQuery);
       db.runSync(dropNotesIndexQuery);
+      db.runSync(dropAlternativeTitleIndexQuery);
       db.runSync(createNovelIndexQuery);
       db.runSync(createChapterIndexQuery);
       db.runSync(createNotesIndexQuery);
+      db.runSync(createAlternativeTitleIndexQuery);
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -191,5 +203,15 @@ const updateToDBVersion4 = () => {
   db.withTransactionSync(() => {
     db.runSync('ALTER TABLE tracks ADD COLUMN metadata TEXT');
     db.execSync('PRAGMA user_version = 4');
+  });
+};
+
+const updateToDBVersion5 = () => {
+  db.withTransactionSync(() => {
+    // Create the new AlternativeTitle table
+    db.runSync(createAlternativeTitleTableQuery);
+    db.runSync(createAlternativeTitleIndexQuery);
+
+    db.execSync('PRAGMA user_version = 6');
   });
 };

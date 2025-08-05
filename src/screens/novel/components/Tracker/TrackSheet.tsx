@@ -15,6 +15,10 @@ import {
   insertTrack,
   updateTrack,
 } from '@database/queries/TrackQueries';
+import {
+  getAlternativeTitles,
+  addAlternativeTitle,
+} from '@database/queries/NovelQueries';
 import { TrackStatus } from '@database/types/Track';
 import { List, Button, IconButton } from 'react-native-paper';
 import { useBoolean } from '@hooks/index';
@@ -59,6 +63,8 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
   const [refreshingLists, setRefreshingLists] = useState(false);
   const [showListModal, setShowListModal] = useState(false);
   const [updateAllDialogVisible, setUpdateAllDialogVisible] = useState(false);
+  const [titlePickerVisible, setTitlePickerVisible] = useState(false);
+  const [availableTitles, setAvailableTitles] = useState<string[]>([]);
 
   const snapPoints = useMemo(() => ['50%', '90%'], []);
 
@@ -257,6 +263,28 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
     }
   }, [searchActive, selectedTracker, searchText, novel.name, handleSearch]);
 
+  // Load alternative titles when component mounts
+  const loadAlternativeTitles = useCallback(async () => {
+    try {
+      const altTitles = await getAlternativeTitles(novel.id);
+      // Combine main title with alternative titles
+      const allTitles = [novel.name, ...altTitles].filter(Boolean);
+      setAvailableTitles(allTitles);
+    } catch (error) {
+      // If loading fails, just use the main title
+      setAvailableTitles([novel.name]);
+    }
+  }, [novel.id, novel.name]);
+
+  useEffect(() => {
+    loadAlternativeTitles();
+  }, [loadAlternativeTitles]);
+
+  const handleTitleSelect = (title: string) => {
+    setSearchText(title);
+    setTitlePickerVisible(false);
+  };
+
   const handleLoadMore = () => {
     if (!loadingMore && hasMore) {
       // if we have very few results (less than 10) and we're on page 1,
@@ -397,6 +425,18 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
     if (typeof novel.id === 'string') {
       throw new Error('Cannot track novel without valid ID');
     }
+
+    // Add alternative titles from tracker if available
+    if (item.alternativeTitles && item.alternativeTitles.length > 0) {
+      for (const title of item.alternativeTitles) {
+        try {
+          await addAlternativeTitle(novel.id, title);
+        } catch (e) {
+          // Silently ignore if title already exists or other issues
+        }
+      }
+    }
+
     const trackData = {
       novelId: novel.id,
       source: selectedTracker,
@@ -719,6 +759,32 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
                 ]}
               />
 
+              {/* Title Picker Button */}
+              {availableTitles.length > 1 && (
+                <TouchableOpacity
+                  style={[
+                    styles.titlePickerButton,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.outline,
+                    },
+                  ]}
+                  onPress={() => setTitlePickerVisible(true)}
+                >
+                  <Text
+                    style={[
+                      styles.titlePickerText,
+                      {
+                        color: theme.onSurface,
+                      },
+                    ]}
+                  >
+                    Use alternative title ({availableTitles.length} available)
+                  </Text>
+                  <IconButton icon="chevron-down" size={16} />
+                </TouchableOpacity>
+              )}
+
               {}
               {selectedTracker &&
                 allTrackers[selectedTracker] &&
@@ -913,6 +979,90 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
         tracks={tracks}
         appProgress={getHighestReadChapter()}
       />
+
+      {/* Title Picker Modal */}
+      <Modal
+        visible={titlePickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTitlePickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.surface,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.modalTitle,
+                {
+                  color: theme.onSurface,
+                },
+              ]}
+            >
+              Select Title to Search
+            </Text>
+            <FlatList
+              data={availableTitles}
+              style={styles.modalList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    {
+                      backgroundColor:
+                        searchText === item
+                          ? theme.primaryContainer
+                          : theme.surface,
+                      borderBottomColor: theme.outline,
+                    },
+                  ]}
+                  onPress={() => handleTitleSelect(item)}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      {
+                        color:
+                          searchText === item
+                            ? theme.onPrimaryContainer
+                            : theme.onSurface,
+                      },
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item, index) => `title-${index}`}
+            />
+            <TouchableOpacity
+              style={[
+                styles.modalCancelButton,
+                {
+                  backgroundColor: theme.primary,
+                },
+              ]}
+              onPress={() => setTitlePickerVisible(false)}
+            >
+              <Text
+                style={[
+                  styles.modalCancelText,
+                  {
+                    color: theme.onPrimary,
+                  },
+                ]}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {}
       <Modal
@@ -1133,6 +1283,19 @@ const styles = StyleSheet.create({
   },
   surfaceNoElevation: {
     elevation: 0,
+  },
+  titlePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  titlePickerText: {
+    fontSize: 14,
+    flex: 1,
   },
 });
 export default TrackSheet;
