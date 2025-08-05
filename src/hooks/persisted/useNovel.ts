@@ -9,6 +9,7 @@ import {
   deleteCachedNovels as _deleteCachedNovels,
   getCachedNovels as _getCachedNovels,
   insertNovelAndChapters,
+  addAlternativeTitle,
 } from '@database/queries/NovelQueries';
 import {
   bookmarkChapter as _bookmarkChapter,
@@ -38,9 +39,6 @@ import NativeFile from '@specs/NativeFile';
 import { useLibraryContext } from '@components/Context/LibraryContext';
 import { useProgressSync } from '@services/Trackers/ProgressSyncService';
 // #region constants
-
-// store key: '<PREFIX>_<novel.pluginId>_<novel.path>',
-// store key: '<PREFIX>_<novel.id>',
 
 export const TRACKED_NOVEL_PREFIX = 'TRACKED_NOVEL_PREFIX';
 
@@ -100,7 +98,20 @@ export const useTrackedNovel = (novelId: number | 'NO_ID') => {
   const trackNovel = (tracker: TrackerMetadata, novel: SearchResult) => {
     getTracker(tracker.name)
       .getUserListEntry(novel.id, tracker.auth)
-      .then((data: UserListEntry) => {
+      .then(async (data: UserListEntry) => {
+        // Add alternative titles from tracker to database if available
+        if (
+          data.alternativeTitles &&
+          data.alternativeTitles.length > 0 &&
+          novelId !== 'NO_ID'
+        ) {
+          for (const title of data.alternativeTitles) {
+            try {
+              await addAlternativeTitle(novelId, title);
+            } catch (e) {}
+          }
+        }
+
         setValue({
           ...novel,
           ...data,
@@ -117,11 +128,27 @@ export const useTrackedNovel = (novelId: number | 'NO_ID') => {
     if (!trackedNovel) {
       return;
     }
-    return getTracker(tracker.name).updateUserListEntry(
-      trackedNovel.id,
-      data,
-      tracker.auth,
-    );
+    return getTracker(tracker.name)
+      .updateUserListEntry(trackedNovel.id, data, tracker.auth)
+      .then(async (updatedData: UserListEntry) => {
+        // Add alternative titles from tracker update to database if available
+        if (
+          updatedData.alternativeTitles &&
+          updatedData.alternativeTitles.length > 0 &&
+          novelId !== 'NO_ID'
+        ) {
+          for (const title of updatedData.alternativeTitles) {
+            try {
+              await addAlternativeTitle(novelId, title);
+            } catch (e) {}
+          }
+        }
+
+        // Update the tracked novel state with the new data
+        setValue(prev => (prev ? { ...prev, ...updatedData } : prev));
+
+        return updatedData;
+      });
   };
 
   return {

@@ -1,7 +1,6 @@
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { ANILIST_CLIENT_ID } from '@env';
-
+const ANILIST_CLIENT_ID = 28747;
 const ANILIST_API_URL = 'https://graphql.anilist.co';
 //const ANILIST_REDIRECT_URI = 'lnreader://auth/anilist';
 
@@ -74,6 +73,7 @@ const handleSearch = async (query, authentication, options) => {
             native
             userPreferred
           }
+          synonyms
           coverImage {
             medium
             color
@@ -124,6 +124,12 @@ const handleSearch = async (query, authentication, options) => {
       item.title.english ||
       item.title.romaji ||
       item.title.native,
+    alternativeTitles: [
+      ...(item.title.english ? [item.title.english] : []),
+      ...(item.title.romaji ? [item.title.romaji] : []),
+      ...(item.title.native ? [item.title.native] : []),
+      ...(item.synonyms || []),
+    ].filter(title => title && title.trim().length > 0),
     coverImage: item.coverImage?.large || item.coverImage?.medium,
     totalChapters: item.chapters,
     description: item.description,
@@ -444,6 +450,7 @@ export const anilist = {
     requiresAuth: true,
     supportsMetadataCache: false,
     supportsBulkSync: true,
+    hasAlternativeTitles: true,
   },
   authenticate,
   handleSearch,
