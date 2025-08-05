@@ -42,6 +42,26 @@ export const insertNovelAndChapters = async (
   ]).lastInsertRowId;
 
   if (novelId) {
+    // Insert alternative titles if they exist
+    const alternativeTitles = sourceNovel.alternativeTitles || [];
+    const cleanTitles = [
+      ...new Set(
+        alternativeTitles
+          .map(title => title.trim())
+          .filter(title => title.length > 0),
+      ),
+    ];
+
+    for (const title of cleanTitles) {
+      try {
+        db.runSync(
+          'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+          novelId,
+          title,
+        );
+      } catch (e) {}
+    }
+    await updateNovelHasMatch(novelId);
     if (sourceNovel.cover) {
       const novelDir = NOVEL_STORAGE + '/' + pluginId + '/' + novelId;
       NativeFile.mkdir(novelDir);
@@ -87,7 +107,12 @@ export const getNovelByPath = (
   if (!res) {
     return undefined;
   }
-  return res;
+  const altTitles =
+    db.getAllSync<{ title: string }>(
+      'SELECT title FROM AlternativeTitle WHERE novelId = ?',
+      [res.id],
+    ) || [];
+  return { ...res, alternativeTitles: altTitles.map(t => t.title) };
 };
 
 // if query is insert novel || add to library => add default category name for it
@@ -158,9 +183,10 @@ export const restoreLibrary = async (novel: NovelInfo) => {
   const sourceNovel = await fetchNovel(novel.pluginId, novel.path).catch(e => {
     throw e;
   });
+
   let novelId: number | undefined;
   await db.withTransactionAsync(async () => {
-    db.runAsync(restoreFromBackupQuery, [
+    const result = await db.runAsync(restoreFromBackupQuery, [
       sourceNovel.path,
       novel.name,
       novel.pluginId,
@@ -171,9 +197,30 @@ export const restoreLibrary = async (novel: NovelInfo) => {
       novel.status || '',
       novel.genres || '',
       sourceNovel.totalPages || 0,
-    ]).then(data => {
-      novelId = data.lastInsertRowId;
-    });
+    ]);
+    novelId = result.lastInsertRowId;
+
+    // Restore alternative titles from source novel (plugins may have updated them)
+    if (novelId) {
+      const sourceTitles = sourceNovel.alternativeTitles || [];
+      const cleanTitles = [
+        ...new Set(
+          sourceTitles
+            .map(title => title.trim())
+            .filter(title => title.length > 0),
+        ),
+      ];
+
+      for (const title of cleanTitles) {
+        try {
+          await db.runAsync(
+            'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+            novelId,
+            title,
+          );
+        } catch (e) {}
+      }
+    }
   });
 
   if (novelId && novelId > 0) {
@@ -204,7 +251,7 @@ export const restoreLibrary = async (novel: NovelInfo) => {
 };
 
 export const updateNovelInfo = async (info: NovelInfo) => {
-  runAsync([
+  await runAsync([
     [
       'UPDATE Novel SET name = ?, cover = ?, path = ?, summary = ?, author = ?, artist = ?, genres = ?, status = ?, isLocal = ? WHERE id = ?',
       [
@@ -221,6 +268,7 @@ export const updateNovelInfo = async (info: NovelInfo) => {
       ],
     ],
   ]);
+  await updateNovelHasMatch(info.id);
 };
 
 export const pickCustomNovelCover = async (novel: NovelInfo) => {
@@ -353,4 +401,92 @@ export const _restoreNovelAndChapters = async (backupNovel: BackupNovel) => {
       `Failed to restore novel "${novel.name}": ${error.message}`,
     );
   }
+};
+
+export const getAlternativeTitles = async (
+  novelId: number,
+): Promise<string[]> => {
+  const titles = await getAllAsync<{ title: string }>([
+    'SELECT title FROM AlternativeTitle WHERE novelId = ? ORDER BY title',
+    [novelId],
+  ]);
+
+  return titles.map(row => row.title);
+};
+
+export const updateAlternativeTitles = async (
+  novelId: number,
+  titles: string[],
+): Promise<void> => {
+  // Clean titles: trim whitespace, remove empty strings, and remove duplicates
+  const cleanTitles = [
+    ...new Set(
+      titles.map(title => title.trim()).filter(title => title.length > 0),
+    ),
+  ];
+
+  await db.withTransactionAsync(async () => {
+    // Delete all existing alternative titles for this novel
+    await db.runAsync(
+      'DELETE FROM AlternativeTitle WHERE novelId = ?',
+      novelId,
+    );
+
+    // Insert the new titles
+    for (const title of cleanTitles) {
+      await db.runAsync(
+        'INSERT INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+        novelId,
+        title,
+      );
+    }
+  });
+  await updateNovelHasMatch(novelId);
+};
+
+export const addAlternativeTitle = async (
+  novelId: number,
+  title: string,
+): Promise<void> => {
+  const trimmedTitle = title.trim();
+
+  if (trimmedTitle && trimmedTitle.length > 0) {
+    try {
+      // Check if a case-insensitive match already exists
+      const existingTitle = await db.getFirstAsync<{ title: string }>(
+        'SELECT title FROM AlternativeTitle WHERE novelId = ? AND LOWER(title) = LOWER(?)',
+        novelId,
+        trimmedTitle,
+      );
+      if (!existingTitle) {
+        await db.runAsync(
+          'INSERT INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+          novelId,
+          trimmedTitle,
+        );
+        await updateNovelHasMatch(novelId);
+      }
+    } catch (e) {
+      // Silently ignore if title already exists or other constraint violations
+    }
+  }
+};
+
+export const removeAlternativeTitle = async (
+  novelId: number,
+  title: string,
+): Promise<void> => {
+  await db.runAsync(
+    'DELETE FROM AlternativeTitle WHERE novelId = ? AND title = ?',
+    novelId,
+    title.trim(),
+  );
+  await updateNovelHasMatch(novelId);
+};
+
+export const clearAlternativeTitles = async (
+  novelId: number,
+): Promise<void> => {
+  await db.runAsync('DELETE FROM AlternativeTitle WHERE novelId = ?', novelId);
+  await updateNovelHasMatch(novelId);
 };

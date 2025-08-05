@@ -147,6 +147,21 @@ const handleSearch: Tracker['handleSearch'] = async (
         author: item.publisher,
         genres: item.labels?.map((label: any) => label.name) || [],
         status: item.status,
+        alternativeTitles: [
+          ...(item.english_title &&
+          item.english_title !== (item.raw_title || item.title)
+            ? [item.english_title]
+            : []),
+          ...(item.raw_title && item.raw_title !== item.english_title
+            ? [item.raw_title]
+            : []),
+          ...(item.title &&
+          item.title !== item.english_title &&
+          item.title !== item.raw_title
+            ? [item.title]
+            : []),
+          ...(item.alternate_titles || []),
+        ].filter((title, index, arr) => title && arr.indexOf(title) === index),
       }));
     }
 
@@ -207,12 +222,75 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       }
     };
 
-    return {
+    // Try to fetch novel metadata for alternative titles
+    let novelMetadata = null;
+    try {
+      // Send OPTIONS request first (CORS preflight)
+      try {
+        await fetchApi(`${NOVELLIST_BASE_URL}/api/novels/${id}`, {
+          method: 'OPTIONS',
+          headers: {
+            'Accept': '*/*',
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'authorization,content-type',
+            'Origin': 'https://www.novellist.co',
+            'Referer': 'https://www.novellist.co/',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+          },
+        });
+      } catch (optionsError) {
+        // Ignore OPTIONS errors
+      }
+
+      const novelResponse = await fetchApi(
+        `${NOVELLIST_BASE_URL}/api/novels/${id}`,
+        {
+          method: 'GET',
+          headers: getAuthHeaders(authentication),
+        },
+      );
+
+      if (novelResponse.ok) {
+        novelMetadata = await novelResponse.json();
+      }
+    } catch (metadataError) {
+      // If novel metadata fetch fails, continue without alternative titles
+    }
+
+    const result: any = {
       status: mapStatusFromNovellist(data.status),
       progress: data.chapter_count || 0,
       score: data.rating || undefined,
       notes: data.note || undefined,
     };
+
+    // Add alternative titles if novel metadata is available
+    if (novelMetadata) {
+      result.alternativeTitles = [
+        ...(novelMetadata.english_title &&
+        novelMetadata.english_title !==
+          (novelMetadata.raw_title || novelMetadata.title)
+          ? [novelMetadata.english_title]
+          : []),
+        ...(novelMetadata.raw_title &&
+        novelMetadata.raw_title !== novelMetadata.english_title
+          ? [novelMetadata.raw_title]
+          : []),
+        ...(novelMetadata.title &&
+        novelMetadata.title !== novelMetadata.english_title &&
+        novelMetadata.title !== novelMetadata.raw_title
+          ? [novelMetadata.title]
+          : []),
+      ].filter((title, index, arr) => title && arr.indexOf(title) === index);
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -382,12 +460,75 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       );
     }
 
-    return {
+    // Try to fetch novel metadata for alternative titles
+    let novelMetadata = null;
+    try {
+      // Send OPTIONS request first (CORS preflight)
+      try {
+        await fetchApi(`${NOVELLIST_BASE_URL}/api/novels/${id}`, {
+          method: 'OPTIONS',
+          headers: {
+            'Accept': '*/*',
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'authorization,content-type',
+            'Origin': 'https://www.novellist.co',
+            'Referer': 'https://www.novellist.co/',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+          },
+        });
+      } catch (optionsError) {
+        // Ignore OPTIONS errors
+      }
+
+      const novelResponse = await fetchApi(
+        `${NOVELLIST_BASE_URL}/api/novels/${id}`,
+        {
+          method: 'GET',
+          headers: getAuthHeaders(authentication),
+        },
+      );
+
+      if (novelResponse.ok) {
+        novelMetadata = await novelResponse.json();
+      }
+    } catch (metadataError) {
+      // If novel metadata fetch fails, continue without alternative titles
+    }
+
+    const result: any = {
       status: payload.status || 'CURRENT',
       progress: payload.progress || 0,
       score: payload.score,
       notes: payload.notes,
     };
+
+    // Add alternative titles if novel metadata is available
+    if (novelMetadata) {
+      result.alternativeTitles = [
+        ...(novelMetadata.english_title &&
+        novelMetadata.english_title !==
+          (novelMetadata.raw_title || novelMetadata.title)
+          ? [novelMetadata.english_title]
+          : []),
+        ...(novelMetadata.raw_title &&
+        novelMetadata.raw_title !== novelMetadata.english_title
+          ? [novelMetadata.raw_title]
+          : []),
+        ...(novelMetadata.title &&
+        novelMetadata.title !== novelMetadata.english_title &&
+        novelMetadata.title !== novelMetadata.raw_title
+          ? [novelMetadata.title]
+          : []),
+      ].filter((title, index, arr) => title && arr.indexOf(title) === index);
+    }
+
+    return result;
   } catch (error) {
     throw new Error(`Failed to update id: ${id}: ${error}`);
   }
@@ -643,6 +784,7 @@ export const novellist: Tracker = {
     requiresAuth: true,
     supportsMetadataCache: false,
     supportsBulkSync: true,
+    hasAlternativeTitles: true,
   },
   authenticate,
   handleSearch,

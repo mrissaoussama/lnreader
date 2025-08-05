@@ -24,6 +24,8 @@ export type TrackerCapabilities = {
   supportsMetadataCache: boolean;
   /** Whether this tracker supports bulk sync operations (to avoid ip bans) */
   supportsBulkSync: boolean;
+  /** Whether this tracker provides alternative titles in search results */
+  hasAlternativeTitles: boolean;
 };
 
 /**
@@ -55,6 +57,8 @@ export type SearchResult = {
   id: string | number;
   /** The tracker's title of this entry */
   title: string;
+  /** Alternative titles for this entry */
+  alternativeTitles?: string[];
   /** A link to the tracker's largest available image for this entry */
   coverImage?: string;
   /** The total number of chapters for this entry which may not be available */
@@ -84,6 +88,8 @@ export type UserListEntry = {
   finishDate?: string;
   /** User notes */
   notes?: string;
+  /** Alternative titles for this entry, for trackers that can't get them from search results */
+  alternativeTitles?: string[];
   /** Tracker-specific metadata stored as JSON string */
   metadata?: string;
   /** Novel plugin ID for tracking notes (used internally) */

@@ -1,9 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { MYANIMELIST_CLIENT_ID } from '@env';
 
 const MAL_API_URL = 'https://api.myanimelist.net/v2';
-const MAL_CLIENT_ID = MYANIMELIST_CLIENT_ID;
+const MAL_CLIENT_ID = '6e1bab746c4167008a34b2c432d57111';
 const BASE_OAUTH_URL = 'https://myanimelist.net/v1/oauth2';
 let codeVerifier = '';
 
@@ -57,7 +56,7 @@ const handleSearch = async (query, authentication, _options) => {
 
   const searchUrl = `${MAL_API_URL}/manga?q=${encodeURIComponent(
     query,
-  )}&limit=50&fields=id,title,main_picture,num_chapters,synopsis,status,start_date,genres,authors,media_type`;
+  )}&limit=50&fields=id,title,alternative_titles,main_picture,num_chapters,synopsis,status,start_date,genres,authors,media_type`;
   const headers = getHeaders(authentication.accessToken);
 
   const response = await fetch(searchUrl, {
@@ -98,6 +97,18 @@ const handleSearch = async (query, authentication, _options) => {
       item.node.authors?.[0]?.node?.last_name
         ? `${item.node.authors[0].node.first_name} ${item.node.authors[0].node.last_name}`
         : undefined,
+    alternativeTitles: [
+      ...(item.node.alternative_titles?.en
+        ? [item.node.alternative_titles.en]
+        : []),
+      ...(item.node.alternative_titles?.ja
+        ? [item.node.alternative_titles.ja]
+        : []),
+      ...(item.node.alternative_titles?.synonyms || []),
+    ].filter(
+      (title, index, arr) =>
+        title && title !== item.node.title && arr.indexOf(title) === index,
+    ),
   }));
 };
 const updateUserListEntry = async (id, payload, authentication) => {
@@ -198,7 +209,7 @@ const getPkceChallengeCode = () => {
   return codeVerifier; // Plain method, challenge = verifier
 };
 
-// Build auth URL exactly like Kotlin
+// Build auth URL similar to Aniyomi
 const buildAuthUrl = () => {
   const authParams = new URLSearchParams({
     client_id: MAL_CLIENT_ID,
@@ -383,6 +394,7 @@ export const myAnimeList = {
     requiresAuth: true,
     supportsMetadataCache: false,
     supportsBulkSync: true,
+    hasAlternativeTitles: true,
   },
   authenticate,
   revalidate,

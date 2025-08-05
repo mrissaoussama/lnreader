@@ -435,14 +435,68 @@ const handleSearch: Tracker['handleSearch'] = async (
       const titleElement = $(element).find('.search_title a');
       const title = titleElement.text().trim();
       const link = titleElement.attr('href');
-      const idMatch = link?.match(/series\/([^/]+)\/?/);
-      const id = idMatch ? idMatch[1] : '';
+      // Extract numeric ID from the span with sid prefix (for API requests)
+      const sidSpan = $(element).find('span[id^="sid"]');
+      const sidId = sidSpan.attr('id');
+      let numericId = '';
+
+      if (sidId) {
+        const sidMatch = sidId.match(/sid(\d+)/);
+        if (sidMatch) {
+          numericId = sidMatch[1];
+        }
+      }
+
+      // Extract slug from URL (for page navigation)
+      let slug = '';
+      if (link) {
+        const slugMatch = link.match(/series\/([^/]+)\/?/);
+        slug = slugMatch ? slugMatch[1] : '';
+      }
+
+      // Use slug as ID for search results (needed for getUserListEntry)
+      const id = slug || numericId;
 
       const coverElement = $(element).find('.search_img_nu img');
       const coverImage = coverElement.attr('src');
 
-      const descElement = $(element).find('.search_body_nu');
-      const description = descElement.text().trim();
+      // Get description - try multiple selectors as fallbacks
+      let descContainer = $(element).find('.search_body_nu'); // Primary selector
+      if (!descContainer.length) {
+        descContainer = $(element).find('div[style*="padding-top:5px"]'); // Fallback 1
+      }
+      if (!descContainer.length) {
+        descContainer = $(element).find('div[style*="font-size: 14px"]'); // Fallback 2
+      }
+      if (!descContainer.length) {
+        // Fallback 3: Find div containing .testhide (description with hidden content)
+        descContainer = $(element).find('div:has(.testhide)');
+      }
+      if (!descContainer.length) {
+        // Fallback 4: Last div in the search result (usually contains description)
+        descContainer = $(element).find('div').last();
+      }
+
+      let description = '';
+
+      if (descContainer.length) {
+        const fullText = descContainer.text();
+
+        const hiddenText = descContainer.find('.testhide').text();
+
+        if (hiddenText) {
+          const visibleText = fullText.replace(hiddenText, '').trim();
+
+          // Combine visible and hidden, cleaning up formatting
+          description = (visibleText + ' ' + hiddenText)
+            .replace(/\.\.\.\s*more>>/g, '')
+            .replace(/<<less/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        } else {
+          description = fullText.replace(/\.\.\.\s*more>>/g, '').trim();
+        }
+      }
 
       if (title && id) {
         results.push({
@@ -452,8 +506,9 @@ const handleSearch: Tracker['handleSearch'] = async (
             ? coverImage
             : `${NOVEL_UPDATES_BASE_URL}${coverImage}`,
           description:
-            description.substring(0, 200) +
-            (description.length > 200 ? '...' : ''),
+            description.length > 300
+              ? description.substring(0, 300) + '...'
+              : description,
         });
       }
     });
@@ -486,6 +541,26 @@ const getNovelId = (loadedCheerio: CheerioAPI): string => {
   }
 
   throw new Error('Failed to get novel ID');
+};
+
+const getAlternativeTitles = (loadedCheerio: CheerioAPI): string[] => {
+  const editAssociatedDiv = loadedCheerio('#editassociated');
+  if (!editAssociatedDiv.length) {
+    return [];
+  }
+
+  const htmlContent = editAssociatedDiv.html();
+  if (!htmlContent) {
+    return [];
+  }
+
+  // Split by <br> tags and clean up the titles
+  const titles = htmlContent
+    .split(/<br\s*\/?>/gi)
+    .map(title => title.replace(/<[^>]*>/g, '').trim())
+    .filter(title => title.length > 0);
+
+  return titles;
 };
 
 const getReadingListStatus = (loadedCheerio: CheerioAPI): string | null => {
@@ -871,17 +946,21 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       progress: 1,
       score: 0,
       notes: '',
+      alternativeTitles: [],
       metadata: '',
     };
   }
-  const url = `${NOVEL_UPDATES_BASE_URL}/series/${id}`;
+  let alternativeTitles: string[] = [];
+  const slug = id;
+  const url = `${NOVEL_UPDATES_BASE_URL}/series/${slug}`;
 
   const result = await fetchApi(url);
   const body = await result.text();
   const loadedCheerio = load(body);
 
   try {
-    const novelId = getNovelId(loadedCheerio);
+    novelId = getNovelId(loadedCheerio);
+    alternativeTitles = getAlternativeTitles(loadedCheerio);
     const listValue = getReadingListStatus(loadedCheerio);
 
     if (!listValue) {
@@ -890,7 +969,8 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
         progress: 1,
         score: 0,
         notes: '',
-        metadata: JSON.stringify({ novelId }),
+        alternativeTitles,
+        metadata: JSON.stringify({ novelId, alternativeTitles, slug }),
       };
     }
     const notesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
@@ -960,8 +1040,10 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       };
     }
 
-    const enhancedMetadata = {
+    const metadata = {
       novelId,
+      alternativeTitles,
+      slug,
       lastMarkedChapterId: lastMarkedChapterId || undefined,
       notesProgress: notesProgress,
       markedProgress: markedProgress,
@@ -973,7 +1055,8 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       progress: Math.max(finalProgress, 0),
       score: 0,
       notes: notesData.notes || '',
-      metadata: JSON.stringify(enhancedMetadata),
+      alternativeTitles,
+      metadata: JSON.stringify(metadata),
       progressDisplay: detailedProgress.progressDisplay,
     };
   } catch (error) {
@@ -982,6 +1065,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       progress: 1,
       score: 0,
       notes: '',
+      alternativeTitles: [],
       metadata: '',
     };
   }
@@ -997,22 +1081,32 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
   }
 
   let novelId: string | undefined;
+  let alternativeTitles: string[] = [];
+  let slug = id;
 
+  // Check existing metadata first to avoid unnecessary requests
   if (payload.metadata) {
     try {
       const metadata = JSON.parse(payload.metadata);
       if (metadata.novelId) {
         novelId = metadata.novelId;
       }
+      if (metadata.alternativeTitles) {
+        alternativeTitles = metadata.alternativeTitles;
+      }
+      if (metadata.slug) {
+        slug = metadata.slug;
+      }
     } catch (error) {}
   }
 
   if (!novelId) {
-    const url = `${NOVEL_UPDATES_BASE_URL}/series/${id}`;
+    const url = `${NOVEL_UPDATES_BASE_URL}/series/${slug}`;
     const result = await fetchApi(url);
     const body = await result.text();
     const loadedCheerio = load(body);
     novelId = getNovelId(loadedCheerio);
+    alternativeTitles = getAlternativeTitles(loadedCheerio);
   }
 
   const listId =
@@ -1126,7 +1220,8 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     progress: payload.progress || 1,
     score: payload.score,
     notes: payload.notes,
-    metadata: JSON.stringify({ novelId }),
+    alternativeTitles,
+    metadata: JSON.stringify({ novelId, alternativeTitles, slug }),
     novelPluginId: payload.novelPluginId,
     novelPath: payload.novelPath,
     chapterName: payload.chapterName,
@@ -1145,6 +1240,7 @@ export const novelUpdates: Tracker = {
     requiresAuth: true,
     supportsMetadataCache: true,
     supportsBulkSync: true,
+    hasAlternativeTitles: true,
   },
   authenticate,
   handleSearch,

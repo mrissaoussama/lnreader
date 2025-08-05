@@ -33,6 +33,7 @@ export interface SourceNovel extends NovelItem {
   status?: NovelStatus;
   chapters: ChapterItem[];
   totalPages?: number;
+  alternativeTitles?: string[];
 }
 
 export interface SourcePage {
