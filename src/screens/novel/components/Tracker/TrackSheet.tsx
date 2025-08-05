@@ -338,8 +338,7 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
             throw new Error(`Not logged in to ${track.source}`);
           }
 
-          // Update the remote tracker
-          await updateUserListEntry(
+          const updateResult = await updateUserListEntry(
             track.source,
             track.sourceId,
             {
@@ -347,6 +346,19 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
             },
             auth,
           );
+
+          // Add alternative titles from tracker update to database if available
+          if (
+            updateResult.alternativeTitles &&
+            updateResult.alternativeTitles.length > 0 &&
+            novel.id !== 'NO_ID'
+          ) {
+            for (const title of updateResult.alternativeTitles) {
+              try {
+                await addAlternativeTitle(novel.id, title);
+              } catch (e) {}
+            }
+          }
 
           // Update the local database
           await updateTrack(track.id, {
@@ -431,9 +443,7 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
       for (const title of item.alternativeTitles) {
         try {
           await addAlternativeTitle(novel.id, title);
-        } catch (e) {
-          // Silently ignore if title already exists or other issues
-        }
+        } catch (e) {}
       }
     }
 
@@ -487,7 +497,7 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
       if (!auth) {
         throw new Error(`Not logged in to ${track.source}`);
       }
-      await updateUserListEntry(
+      const updateResult = await updateUserListEntry(
         track.source,
         track.sourceId,
         {
@@ -495,6 +505,20 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
         },
         auth,
       );
+
+      // Add alternative titles from tracker update to database if available
+      if (
+        updateResult.alternativeTitles &&
+        updateResult.alternativeTitles.length > 0 &&
+        novel.id !== 'NO_ID'
+      ) {
+        for (const title of updateResult.alternativeTitles) {
+          try {
+            await addAlternativeTitle(novel.id, title);
+          } catch (e) {}
+        }
+      }
+
       await updateTrack(track.id, {
         lastChapterRead: newChapter,
         lastSyncAt: new Date().toISOString(),
@@ -677,11 +701,9 @@ const TrackSheet: React.FC<TrackSheetProps> = ({
     <List.Item
       title={item.title}
       description={`${
-        item.totalChapters
-          ? `${item.totalChapters} chapters`
-          : 'Unknown chapters'
-      } • ${item.description?.substring(0, 100)}${
-        item.description && item.description.length > 100 ? '...' : ''
+        item.totalChapters ? `${item.totalChapters} chapters` : ''
+      } • ${item.description?.substring(0, 300)}${
+        item.description && item.description.length > 300 ? '...' : ''
       }`}
       left={() => renderSearchItemIcon(item)}
       onPress={() => handleLink(item)}

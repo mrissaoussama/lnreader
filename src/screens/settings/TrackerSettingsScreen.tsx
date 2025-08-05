@@ -172,9 +172,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
       case TRACKER_SOURCES.MYANIMELIST:
         return 'Login with your MyAnimeList account to sync your reading progress';
       case TRACKER_SOURCES.NOVEL_UPDATES:
-        return 'Login through webview. Complete login in browser, then close the webview.';
+        return 'Login through webview. Complete login (check Remember me) in browser, then close the webview.';
       case TRACKER_SOURCES.NOVELLIST:
-        return 'Login through webview. Complete login in browser, then close the webview and click refresh auth.';
+        return 'Login through webview. Complete login (only OpenNovel) in browser, then close the webview and click refresh auth.';
       default:
         return 'Sync your reading progress with this tracker';
     }

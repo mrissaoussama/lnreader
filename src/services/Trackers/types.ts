@@ -88,6 +88,8 @@ export type UserListEntry = {
   finishDate?: string;
   /** User notes */
   notes?: string;
+  /** Alternative titles for this entry, for trackers that can't get them from search results */
+  alternativeTitles?: string[];
   /** Tracker-specific metadata stored as JSON string */
   metadata?: string;
   /** Novel plugin ID for tracking notes (used internally) */

@@ -213,9 +213,7 @@ export const restoreLibrary = async (novel: NovelInfo) => {
             novelId,
             title,
           );
-        } catch (e) {
-          // Silently ignore duplicates or constraint violations
-        }
+        } catch (e) {}
       }
     }
   });
