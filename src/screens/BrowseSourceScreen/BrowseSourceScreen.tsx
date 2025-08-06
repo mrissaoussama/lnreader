@@ -129,8 +129,23 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     if (selectedItems.length === 0) return;
 
     const urls = selectedItems.map(item => {
-      const baseUrl = site.endsWith('/') ? site.slice(0, -1) : site;
-      return `${baseUrl}${item.path}`;
+      if (item.path.startsWith('http://') || item.path.startsWith('https://')) {
+        return item.path;
+      }
+      URL;
+      try {
+        const siteUrl = new URL(site);
+        const itemPath = item.path.startsWith('/')
+          ? item.path.substring(1)
+          : item.path;
+        return new URL(itemPath, siteUrl.href).href;
+      } catch (urlError) {
+        const baseUrl = site.endsWith('/') ? site.slice(0, -1) : site;
+        const itemPath = item.path.startsWith('/')
+          ? item.path
+          : `/${item.path}`;
+        return `${baseUrl}${itemPath}`;
+      }
     });
 
     const urlsText = urls.join('\n');

@@ -31,9 +31,19 @@ const processUrl = async (
       if (!p || !p.site || typeof p.site !== 'string') {
         return false;
       }
-      const matches = url.startsWith(p.site);
 
-      return matches;
+      try {
+        const urlObj = new URL(url);
+        const siteObj = new URL(p.site);
+
+        const domainsMatch = urlObj.hostname === siteObj.hostname;
+
+        const startsWithMatch = url.startsWith(p.site);
+
+        return domainsMatch || startsWithMatch;
+      } catch (error) {
+        return url.startsWith(p.site);
+      }
     });
 
     if (!plugin) {
@@ -51,8 +61,26 @@ const processUrl = async (
     }
 
     let novelPath = url;
-    if (url.startsWith(plugin.site)) {
-      novelPath = url.replace(plugin.site, '');
+    try {
+      const urlObj = new URL(url);
+      const siteObj = new URL(plugin.site);
+
+      if (urlObj.hostname === siteObj.hostname) {
+        // Extract path from URL, removing the domain part
+        novelPath = urlObj.pathname + urlObj.search + urlObj.hash;
+        // Remove leading slash if present for consistency
+        if (novelPath.startsWith('/')) {
+          novelPath = novelPath.substring(1);
+        }
+      } else if (url.startsWith(plugin.site)) {
+        // Fallback to original method
+        novelPath = url.replace(plugin.site, '');
+      }
+    } catch (error) {
+      // Fallback to original method if URL parsing fails
+      if (url.startsWith(plugin.site)) {
+        novelPath = url.replace(plugin.site, '');
+      }
     }
 
     try {
