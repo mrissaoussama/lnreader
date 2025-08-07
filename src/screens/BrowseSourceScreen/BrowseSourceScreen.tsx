@@ -1,4 +1,5 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useMemo } from 'react';
+import { StyleSheet } from 'react-native';
 
 import { FAB } from 'react-native-paper';
 import { ErrorScreenV2, SafeAreaView, SearchbarV2 } from '@components/index';
@@ -11,10 +12,10 @@ import { useSearch } from '@hooks';
 import { useTheme } from '@hooks/persisted';
 import { useBrowseSource, useSearchSource } from './useBrowseSource';
 import { useBrowseSettings } from '@hooks/persisted/useSettings';
+import { useAdvancedFilters } from '@hooks/useAdvancedFilters';
 
 import { NovelItem } from '@plugins/types';
 import { getString } from '@strings/translations';
-import { StyleSheet } from 'react-native';
 import { NovelInfo } from '@database/types';
 import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
 import { mergeUrlAndPath } from '@utils/urlUtils';
@@ -25,9 +26,61 @@ import ServiceManager from '@services/ServiceManager';
 import { showToast } from '@utils/showToast';
 import * as Clipboard from 'expo-clipboard';
 
+// Optimized novel item component to improve performance, no rerenders ect
+const OptimizedNovelItem = React.memo<{
+  item: NovelItem | NovelInfo;
+  theme: any;
+  libraryStatus: boolean;
+  inActivity: boolean;
+  isMultiSelectMode: boolean;
+  onPress: () => void;
+  onToggleSelection: () => void;
+  isSelected: boolean;
+  addSkeletonLoading: boolean;
+  onLongPress: () => Promise<void>;
+}>(
+  ({
+    item,
+    theme,
+    libraryStatus,
+    inActivity,
+    isMultiSelectMode,
+    onPress,
+    onToggleSelection,
+    isSelected,
+    addSkeletonLoading,
+    onLongPress,
+  }) => {
+    return (
+      <NovelCover
+        item={item}
+        theme={theme}
+        libraryStatus={libraryStatus}
+        inActivity={inActivity}
+        onPress={() => {
+          if (isMultiSelectMode) {
+            onToggleSelection();
+          } else {
+            onPress();
+          }
+        }}
+        isSelected={isSelected}
+        addSkeletonLoading={addSkeletonLoading}
+        onLongPress={onLongPress}
+        selectedNovelIds={[]}
+      />
+    );
+  },
+);
+
 const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const theme = useTheme();
   const { pluginId, pluginName, site, showLatestNovels } = route.params;
+
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [isLocalFiltersOpen, setIsLocalFiltersOpen] = useState(false);
+
+  const isAnyFilterOpen = isFilterSheetOpen || isLocalFiltersOpen;
 
   const {
     isLoading,
@@ -39,7 +92,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     setFilters,
     clearFilters,
     refetchNovels,
-  } = useBrowseSource(pluginId, showLatestNovels);
+  } = useBrowseSource(pluginId, showLatestNovels, isAnyFilterOpen);
 
   const {
     isSearching,
@@ -49,8 +102,16 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     hasNextSearchPage,
     clearSearchResults,
     searchError,
-  } = useSearchSource(pluginId);
+  } = useSearchSource(pluginId, isAnyFilterOpen);
+
+  const { hiddenCount, applyFiltersToList } =
+    useAdvancedFilters(isAnyFilterOpen);
+
   const novelList = searchResults.length > 0 ? searchResults : novels;
+  const filteredNovelList = useMemo(
+    () => applyFiltersToList(novelList),
+    [applyFiltersToList, novelList],
+  );
   const errorMessage = error || searchError;
 
   const { searchText, setSearchText, clearSearchbar } = useSearch();
@@ -86,7 +147,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     [],
   );
 
-  const { hideInLibraryItems } = useBrowseSettings();
+  const { hideInLibraryItems, enableAdvancedFilters } = useBrowseSettings();
 
   const navigateToNovel = useCallback(
     (item: NovelItem | NovelInfo) =>
@@ -153,18 +214,18 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     setSelectedItems([]);
   }, [selectedItems, site]);
 
-  const selectAllItems = () => {
-    setSelectedItems([...novelList]);
-  };
+  const selectAllItems = useCallback(() => {
+    setSelectedItems([...filteredNovelList]);
+  }, [filteredNovelList]);
 
-  const clearAllSelections = () => {
+  const clearAllSelections = useCallback(() => {
     setSelectedItems([]);
-  };
+  }, []);
 
   React.useEffect(() => {
     if (isMultiSelectMode && selectedItems.length > 0) {
       const validSelections = selectedItems.filter(selectedItem =>
-        novelList.some(
+        filteredNovelList.some(
           novelItem => getItemKey(novelItem) === getItemKey(selectedItem),
         ),
       );
@@ -172,17 +233,26 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         setSelectedItems(validSelections);
       }
     }
-  }, [novelList, isMultiSelectMode, selectedItems, getItemKey]);
+  }, [filteredNovelList, isMultiSelectMode, selectedItems, getItemKey]);
 
   React.useEffect(() => {
     const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
-      if (task && !task.isRunning) {
+      if (task) {
         refetchLibrary();
       }
     });
 
     return unsubscribe;
   }, [refetchLibrary]);
+
+  // Listen for navigation focus to detect when user returns from LocalFiltersScreen
+  React.useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setIsLocalFiltersOpen(false);
+    });
+
+    return unsubscribe;
+  }, [navigation, setIsLocalFiltersOpen]);
 
   const { bottom, right } = useSafeAreaInsets();
   const filterSheetRef = useRef<BottomSheetModal | null>(null);
@@ -192,8 +262,16 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         searchText={searchText}
         leftIcon={isMultiSelectMode ? 'close' : 'magnify'}
         placeholder={
-          isMultiSelectMode
+          isAnyFilterOpen
+            ? isLocalFiltersOpen
+              ? 'loading paused'
+              : 'local Filtering paused'
+            : isMultiSelectMode
             ? `${selectedItems.length} selected`
+            : enableAdvancedFilters && hiddenCount > 0
+            ? `${getString(
+                'common.search',
+              )} ${pluginName} (${hiddenCount} hidden)`
             : `${getString('common.search')} ${pluginName}`
         }
         onChangeText={onChangeText}
@@ -207,16 +285,30 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
             ? [
                 {
                   iconName:
-                    selectedItems.length === novelList.length
+                    selectedItems.length === filteredNovelList.length
                       ? 'checkbox-multiple-blank-outline'
                       : 'checkbox-multiple-marked',
                   onPress:
-                    selectedItems.length === novelList.length
+                    selectedItems.length === filteredNovelList.length
                       ? clearAllSelections
                       : selectAllItems,
                 },
               ]
             : [
+                ...(enableAdvancedFilters
+                  ? [
+                      {
+                        iconName: (hiddenCount > 0
+                          ? 'filter'
+                          : 'filter-outline') as any,
+                        onPress: () => {
+                          setIsLocalFiltersOpen(true);
+                          navigation.navigate('LocalFiltersScreen');
+                        },
+                        color: hiddenCount > 0 ? theme.primary : undefined,
+                      },
+                    ]
+                  : []),
                 {
                   iconName: 'checkbox-multiple-outline',
                   onPress: toggleMultiSelectMode,
@@ -226,9 +318,10 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         }
         theme={theme}
       />
+
       {isLoading || isSearching ? (
         <SourceScreenSkeletonLoading theme={theme} />
-      ) : errorMessage || novelList.length === 0 ? (
+      ) : errorMessage || filteredNovelList.length === 0 ? (
         <ErrorScreenV2
           error={errorMessage || getString('sourceScreen.noResultsFound')}
           actions={[
@@ -247,7 +340,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         />
       ) : (
         <NovelList
-          data={novelList}
+          data={filteredNovelList}
           inSource
           renderItem={({ item }) => {
             if (hideInLibraryItems && novelInLibrary(pluginId, item.path)) {
@@ -256,18 +349,14 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
             const inLibrary = novelInLibrary(pluginId, item.path);
 
             return (
-              <NovelCover
+              <OptimizedNovelItem
                 item={item}
                 theme={theme}
                 libraryStatus={inLibrary}
                 inActivity={inActivity[item.path]}
-                onPress={() => {
-                  if (isMultiSelectMode) {
-                    toggleItemSelection(item);
-                  } else {
-                    navigateToNovel(item);
-                  }
-                }}
+                isMultiSelectMode={isMultiSelectMode}
+                onPress={() => navigateToNovel(item)}
+                onToggleSelection={() => toggleItemSelection(item)}
                 isSelected={
                   isMultiSelectMode &&
                   selectedItems.some(
@@ -287,7 +376,6 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                     setInActivity(prev => ({ ...prev, [item.path]: false }));
                   }
                 }}
-                selectedNovelIds={[]}
               />
             );
           }}
@@ -303,6 +391,8 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
           onEndReachedThreshold={1.5}
         />
       )}
+
+      {/* Multi-select Import FAB */}
       {isMultiSelectMode && selectedItems.length > 0 ? (
         <FAB
           icon={'import'}
@@ -322,34 +412,48 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
           onPress={handleImportSelected}
         />
       ) : null}
+
+      {/* Plugin Filter FAB */}
       {!showLatestNovels &&
       filterValues &&
       !searchText &&
       !isMultiSelectMode ? (
-        <>
-          <FAB
-            icon={'filter-variant'}
-            style={[
-              styles.filterFab,
-              {
-                backgroundColor: theme.primary,
-                marginBottom: bottom + 16,
-                marginRight: right + 16,
-              },
-            ]}
-            label={getString('common.filter')}
-            uppercase={false}
-            color={theme.onPrimary}
-            onPress={() => filterSheetRef?.current?.present()}
-          />
-          <FilterBottomSheet
-            filterSheetRef={filterSheetRef}
-            filters={filterValues}
-            setFilters={setFilters}
-            clearFilters={clearFilters}
-            pluginId={pluginId}
-          />
-        </>
+        <FAB
+          icon={'filter-variant'}
+          style={[
+            styles.filterFab,
+            {
+              backgroundColor: theme.primary,
+              marginBottom:
+                enableAdvancedFilters && !searchText
+                  ? bottom + 80
+                  : bottom + 16,
+              marginRight: right + 16,
+            },
+          ]}
+          label={getString('common.filter')}
+          uppercase={false}
+          color={theme.onPrimary}
+          onPress={() => {
+            setIsFilterSheetOpen(true);
+            filterSheetRef?.current?.present();
+          }}
+        />
+      ) : null}
+
+      {/* Plugin Filter Bottom Sheet */}
+      {!showLatestNovels &&
+      filterValues &&
+      !searchText &&
+      !isMultiSelectMode ? (
+        <FilterBottomSheet
+          filterSheetRef={filterSheetRef}
+          filters={filterValues}
+          setFilters={setFilters}
+          clearFilters={clearFilters}
+          pluginId={pluginId}
+          onSheetChange={isOpen => setIsFilterSheetOpen(isOpen)}
+        />
       ) : null}
     </SafeAreaView>
   );
@@ -369,5 +473,16 @@ const styles = StyleSheet.create({
     margin: 16,
     position: 'absolute',
     right: 0,
+  },
+  filterStatus: {
+    margin: 8,
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  filterStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
