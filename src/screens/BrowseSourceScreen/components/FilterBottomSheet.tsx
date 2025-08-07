@@ -347,6 +347,7 @@ interface BottomSheetProps {
   setFilters: (filters?: SelectedFilters) => void;
   clearFilters: (filters: Filters) => void;
   pluginId: string;
+  onSheetChange?: (isOpen: boolean) => void;
 }
 
 const FilterBottomSheet: React.FC<BottomSheetProps> = ({
@@ -355,6 +356,7 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
   clearFilters,
   setFilters,
   pluginId,
+  onSheetChange,
 }) => {
   const theme = useTheme();
   const { bottom } = useSafeAreaInsets();
@@ -401,6 +403,14 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
           styles.container,
           { backgroundColor: overlay(2, theme.surface) },
         ]}
+        onChange={index => {
+          // Call the callback to notify parent about sheet state
+          onSheetChange?.(index >= 0);
+        }}
+        onClose={() => {
+          // Ensure we notify when sheet is fully closed
+          onSheetChange?.(false);
+        }}
       >
         <BottomSheetView
           style={[styles.buttonContainer, { borderBottomColor: theme.outline }]}
@@ -437,6 +447,7 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
               onPress={() => {
                 setFilters(selectedFilters);
                 filterSheetRef?.current?.close();
+                onSheetChange?.(false);
               }}
               mode="contained"
             />
