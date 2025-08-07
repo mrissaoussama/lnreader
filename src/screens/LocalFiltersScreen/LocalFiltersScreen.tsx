@@ -368,7 +368,11 @@ const LocalFiltersScreen: React.FC<LocalFiltersScreenProps> = ({
       </View>
 
       {/* Content */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Stats */}
         <View
           style={[
@@ -782,7 +786,13 @@ const LocalFiltersScreen: React.FC<LocalFiltersScreenProps> = ({
 
       {/* FABs */}
       <FAB
-        style={[styles.filterFab, { backgroundColor: theme.primary }]}
+        style={[
+          styles.filterFab,
+          {
+            backgroundColor: theme.primary,
+            bottom: insets.bottom + 16,
+          },
+        ]}
         icon="plus"
         label="Filter"
         onPress={() => {
@@ -791,7 +801,13 @@ const LocalFiltersScreen: React.FC<LocalFiltersScreenProps> = ({
       />
 
       <FAB
-        style={[styles.groupFab, { backgroundColor: theme.secondary }]}
+        style={[
+          styles.groupFab,
+          {
+            backgroundColor: theme.secondary,
+            bottom: insets.bottom + 80,
+          },
+        ]}
         icon="folder-plus"
         label="Group"
         onPress={() => {
@@ -1488,12 +1504,10 @@ const styles = StyleSheet.create({
   },
   filterFab: {
     position: 'absolute',
-    bottom: 16,
     right: 16,
   },
   groupFab: {
     position: 'absolute',
-    bottom: 80,
     right: 16,
   },
   comingSoonContainer: {
