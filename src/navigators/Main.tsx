@@ -30,6 +30,7 @@ import MalTopNovels from '../screens/browse/discover/MalTopNovels';
 import AniListTopNovels from '../screens/browse/discover/AniListTopNovels';
 import NewUpdateDialog from '../components/NewUpdateDialog';
 import BrowseSettings from '../screens/browse/settings/BrowseSettings';
+import LocalFiltersScreen from '../screens/LocalFiltersScreen/LocalFiltersScreen';
 import WebviewScreen from '@screens/WebviewScreen/WebviewScreen';
 import { RootStackParamList } from './types';
 import Color from 'color';
@@ -116,6 +117,10 @@ const MainNavigator = () => {
             <Stack.Screen name="BrowseMal" component={MalTopNovels} />
             <Stack.Screen name="BrowseAL" component={AniListTopNovels} />
             <Stack.Screen name="BrowseSettings" component={BrowseSettings} />
+            <Stack.Screen
+              name="LocalFiltersScreen"
+              component={LocalFiltersScreen}
+            />
             <Stack.Screen
               name="GlobalSearchScreen"
               component={GlobalSearchScreen}

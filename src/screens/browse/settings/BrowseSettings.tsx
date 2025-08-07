@@ -22,6 +22,7 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
     showMyAnimeList,
     showAniList,
     hideInLibraryItems,
+    enableAdvancedFilters,
     globalSearchConcurrency,
     setBrowseSettings,
   } = useBrowseSettings();
@@ -75,8 +76,22 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
               style={styles.item}
             />
             <SwitchItem
+              label={getString('browseSettingsScreen.enableAdvancedFilters')}
+              description={getString(
+                'browseSettingsScreen.enableAdvancedFiltersDesc',
+              )}
+              value={enableAdvancedFilters ?? true}
+              onPress={() =>
+                setBrowseSettings({
+                  enableAdvancedFilters: !enableAdvancedFilters,
+                })
+              }
+              theme={theme}
+              style={styles.item}
+            />
+            <SwitchItem
               label={getString('browseScreen.hideInLibraryItems')}
-              value={hideInLibraryItems}
+              value={hideInLibraryItems ?? false}
               onPress={() =>
                 setBrowseSettings({ hideInLibraryItems: !hideInLibraryItems })
               }

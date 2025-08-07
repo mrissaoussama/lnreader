@@ -66,6 +66,7 @@ export interface BrowseSettings {
   showAniList: boolean;
   globalSearchConcurrency?: number;
   hideInLibraryItems?: boolean;
+  enableAdvancedFilters?: boolean;
 }
 
 export interface LibrarySettings {
@@ -180,6 +181,7 @@ const initialBrowseSettings: BrowseSettings = {
   showAniList: true,
   globalSearchConcurrency: 3,
   hideInLibraryItems: false,
+  enableAdvancedFilters: true,
 };
 
 export const initialChapterGeneralSettings: ChapterGeneralSettings = {

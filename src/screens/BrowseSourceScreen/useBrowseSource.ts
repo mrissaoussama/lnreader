@@ -9,6 +9,7 @@ import { useLibraryContext } from '@components/Context/LibraryContext';
 export const useBrowseSource = (
   pluginId: string,
   showLatestNovels?: boolean,
+  isFilterSheetOpen?: boolean,
 ) => {
   const [isLoading, setIsLoading] = useState(true);
   const [novels, setNovels] = useState<NovelItem[]>([]);
@@ -30,6 +31,10 @@ export const useBrowseSource = (
 
   const fetchNovels = useCallback(
     async (page: number, filters?: FilterToValues<Filters>) => {
+      // Don't fetch if filter sheet is open to avoid unnecessary network requests
+      if (isFilterSheetOpen) {
+        return;
+      }
       if (isScreenMounted.current === true) {
         try {
           const plugin = getPlugin(pluginId);
@@ -56,10 +61,20 @@ export const useBrowseSource = (
         }
       }
     },
-    [pluginId, showLatestNovels, hideInLibraryItems, novelInLibrary],
+    [
+      pluginId,
+      showLatestNovels,
+      hideInLibraryItems,
+      novelInLibrary,
+      isFilterSheetOpen,
+    ],
   );
 
   const fetchNextPage = () => {
+    // Don't fetch next page if filter sheet is open
+    if (isFilterSheetOpen) {
+      return;
+    }
     if (hasNextPage) setCurrentPage(prevState => prevState + 1);
   };
 
@@ -73,8 +88,17 @@ export const useBrowseSource = (
   }, []);
 
   useEffect(() => {
-    fetchNovels(currentPage, selectedFilters);
-  }, [fetchNovels, currentPage, selectedFilters, hideInLibraryItems]);
+    // Don't fetch if filter sheet is open
+    if (!isFilterSheetOpen) {
+      fetchNovels(currentPage, selectedFilters);
+    }
+  }, [
+    fetchNovels,
+    currentPage,
+    selectedFilters,
+    hideInLibraryItems,
+    isFilterSheetOpen,
+  ]);
 
   const refetchNovels = () => {
     setError('');
@@ -109,7 +133,10 @@ export const useBrowseSource = (
   };
 };
 
-export const useSearchSource = (pluginId: string) => {
+export const useSearchSource = (
+  pluginId: string,
+  isFilterSheetOpen?: boolean,
+) => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<NovelItem[]>([]);
   const [searchError, setSearchError] = useState<string>();
@@ -121,6 +148,10 @@ export const useSearchSource = (pluginId: string) => {
   const { novelInLibrary } = useLibraryContext();
 
   const searchSource = (searchTerm: string) => {
+    // Don't start search if filter sheet is open
+    if (isFilterSheetOpen) {
+      return;
+    }
     setSearchResults([]);
     setHasNextSearchPage(true);
     setCurrentPage(1);
@@ -132,6 +163,10 @@ export const useSearchSource = (pluginId: string) => {
 
   const fetchNovels = useCallback(
     async (localSearchText: string, page: number) => {
+      // Don't fetch if filter sheet is open to avoid unnecessary network requests
+      if (isFilterSheetOpen) {
+        return;
+      }
       if (isScreenMounted.current === true) {
         try {
           const plugin = getPlugin(pluginId);
@@ -158,18 +193,29 @@ export const useSearchSource = (pluginId: string) => {
         }
       }
     },
-    [pluginId, hideInLibraryItems, novelInLibrary],
+    [pluginId, hideInLibraryItems, novelInLibrary, isFilterSheetOpen],
   );
 
   const searchNextPage = () => {
+    // Don't fetch next page if filter sheet is open
+    if (isFilterSheetOpen) {
+      return;
+    }
     if (hasNextSearchPage) setCurrentPage(prevState => prevState + 1);
   };
 
   useEffect(() => {
-    if (searchText) {
+    // Don't fetch if filter sheet is open and we have search text
+    if (searchText && !isFilterSheetOpen) {
       fetchNovels(searchText, currentPage);
     }
-  }, [currentPage, fetchNovels, searchText, hideInLibraryItems]);
+  }, [
+    currentPage,
+    fetchNovels,
+    searchText,
+    hideInLibraryItems,
+    isFilterSheetOpen,
+  ]);
 
   const clearSearchResults = useCallback(() => {
     setSearchText('');
