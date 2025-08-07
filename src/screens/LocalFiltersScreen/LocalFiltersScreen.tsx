@@ -12,7 +12,7 @@ import { Switch } from 'react-native-gesture-handler';
 import { FAB } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@hooks/persisted';
-import { Button } from '@components/index';
+import { Button, SafeAreaView } from '@components/index';
 import { BrowseFilter, BrowseFilterGroup } from '../../types/browseFilters';
 import { BrowseFilterStorage } from '@services/browseFilterStorage';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
@@ -334,486 +334,499 @@ const LocalFiltersScreen: React.FC<LocalFiltersScreenProps> = ({
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface }]}>
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top, borderBottomColor: theme.outline },
-        ]}
+    <>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: theme.surface }]}
       >
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <MaterialCommunityIcons
-            name="arrow-left"
-            size={24}
-            color={theme.onSurface}
-          />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.onSurface }]}>
-          Local Filters
-        </Text>
-        <View style={styles.headerActions}>
-          <Switch
-            value={filtersEnabled}
-            onValueChange={toggleFiltersEnabled}
-            trackColor={{ false: theme.outline, true: theme.primary }}
-            thumbColor={
-              filtersEnabled ? theme.onPrimary : theme.onSurfaceVariant
-            }
-          />
-        </View>
-      </View>
-
-      {/* Content */}
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Stats */}
-        <View
-          style={[
-            styles.statsContainer,
-            { backgroundColor: theme.surfaceVariant },
-          ]}
-        >
-          <Text style={[styles.statsText, { color: theme.onSurfaceVariant }]}>
-            {filters.filter(f => f.enabled).length}/{filters.length} filter
-            {filters.length !== 1 ? 's' : ''} •{' '}
-            {groups.filter(g => g.enabled).length}/{groups.length} group
-            {groups.length !== 1 ? 's' : ''}
-          </Text>
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color: filtersEnabled ? theme.primary : theme.onSurfaceVariant,
-              },
-            ]}
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: theme.outline }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
           >
-            {filtersEnabled ? 'Active' : 'Disabled'}
+            <MaterialCommunityIcons
+              name="arrow-left"
+              size={24}
+              color={theme.onSurface}
+            />
+          </TouchableOpacity>
+          <Text style={[styles.title, { color: theme.onSurface }]}>
+            Local Filters
           </Text>
+          <View style={styles.headerActions}>
+            <Switch
+              value={filtersEnabled}
+              onValueChange={toggleFiltersEnabled}
+              trackColor={{ false: theme.outline, true: theme.primary }}
+              thumbColor={
+                filtersEnabled ? theme.onPrimary : theme.onSurfaceVariant
+              }
+            />
+          </View>
         </View>
 
-        {/* Filter explanation */}
-        {filters.length > 0 && (
+        {/* Content */}
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Stats */}
           <View
             style={[
-              styles.explanationContainer,
-              { backgroundColor: theme.surface },
+              styles.statsContainer,
+              { backgroundColor: theme.surfaceVariant },
             ]}
           >
+            <Text style={[styles.statsText, { color: theme.onSurfaceVariant }]}>
+              {filters.filter(f => f.enabled).length}/{filters.length} filter
+              {filters.length !== 1 ? 's' : ''} •{' '}
+              {groups.filter(g => g.enabled).length}/{groups.length} group
+              {groups.length !== 1 ? 's' : ''}
+            </Text>
             <Text
               style={[
-                styles.explanationText,
-                { color: theme.onSurfaceVariant },
+                styles.statusText,
+                {
+                  color: filtersEnabled
+                    ? theme.primary
+                    : theme.onSurfaceVariant,
+                },
               ]}
             >
-              <Text style={styles.boldText}>Include</Text> shows only matching
-              items • <Text style={styles.boldText}>Exclude</Text> hides
-              matching items
+              {filtersEnabled ? 'Active' : 'Disabled'}
             </Text>
           </View>
-        )}
 
-        {/* Global Controls */}
-        {filters.length > 0 && (
-          <View
-            style={[
-              styles.globalControls,
-              { backgroundColor: theme.surface, borderColor: theme.outline },
-            ]}
-          >
-            <Text
-              style={[styles.globalControlsTitle, { color: theme.onSurface }]}
+          {/* Filter explanation */}
+          {filters.length > 0 && (
+            <View
+              style={[
+                styles.explanationContainer,
+                { backgroundColor: theme.surface },
+              ]}
             >
-              Bulk Actions
-            </Text>
-            <View style={styles.globalButtonRow}>
-              <TouchableOpacity
+              <Text
                 style={[
-                  styles.globalButton,
-                  {
-                    backgroundColor: isBulkLoading
-                      ? theme.surfaceVariant
-                      : theme.primary,
-                  },
+                  styles.explanationText,
+                  { color: theme.onSurfaceVariant },
                 ]}
-                disabled={isBulkLoading}
-                onPress={() =>
-                  performBulkOperation(() => {
-                    filters.forEach(filter => {
-                      storage.updateFilter(filter.id, { enabled: true });
-                    });
-                    groups.forEach(group => {
-                      storage.updateGroup(group.id, { enabled: true });
-                    });
-                    storage.updateFilterState({ lastApplied: Date.now() });
-                    loadData();
-                  }, 'Enable All')
-                }
               >
-                <Text
-                  style={[styles.globalButtonText, { color: theme.onPrimary }]}
-                >
-                  {isBulkLoading ? 'Processing...' : 'Enable All'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.globalButton,
-                  {
-                    backgroundColor: isBulkLoading
-                      ? theme.surfaceVariant
-                      : theme.outline,
-                  },
-                ]}
-                disabled={isBulkLoading}
-                onPress={() =>
-                  performBulkOperation(() => {
-                    filters.forEach(filter => {
-                      storage.updateFilter(filter.id, { enabled: false });
-                    });
-                    groups.forEach(group => {
-                      storage.updateGroup(group.id, { enabled: false });
-                    });
-                    storage.updateFilterState({ lastApplied: Date.now() });
-                    loadData();
-                  }, 'Disable All')
-                }
-              >
-                <Text
-                  style={[styles.globalButtonText, { color: theme.onSurface }]}
-                >
-                  {isBulkLoading ? 'Processing...' : 'Disable All'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.globalButton,
-                  {
-                    backgroundColor: isBulkLoading
-                      ? theme.surfaceVariant
-                      : theme.secondary,
-                  },
-                ]}
-                disabled={isBulkLoading}
-                onPress={() =>
-                  performBulkOperation(() => {
-                    filters.forEach(filter => {
-                      storage.updateFilter(filter.id, {
-                        enabled: !filter.enabled,
-                      });
-                    });
-                    groups.forEach(group => {
-                      storage.updateGroup(group.id, {
-                        enabled: !group.enabled,
-                      });
-                    });
-                    storage.updateFilterState({ lastApplied: Date.now() });
-                    loadData();
-                  }, 'Toggle All')
-                }
-              >
-                <Text
-                  style={[
-                    styles.globalButtonText,
-                    { color: theme.onSecondary },
-                  ]}
-                >
-                  {isBulkLoading ? 'Processing...' : 'Toggle All'}
-                </Text>
-              </TouchableOpacity>
+                <Text style={styles.boldText}>Include</Text> shows only matching
+                items • <Text style={styles.boldText}>Exclude</Text> hides
+                matching items
+              </Text>
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Ungrouped Filters */}
-        {ungroupedFilters.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>
-              Individual Filters
-            </Text>
-            {ungroupedFilters.map(filter => (
-              <FilterItem
-                key={filter.id}
-                filter={filter}
-                theme={theme}
-                onEdit={() => handleEditFilter(filter)}
-                onDelete={() => handleFilterDelete(filter.id)}
-                onToggle={enabled => toggleFilterEnabled(filter.id, enabled)}
-                onManageGroups={() => handleManageGroupFilters(filter)}
-              />
-            ))}
-          </View>
-        )}
-
-        {/* Groups */}
-        {groups.map(group => {
-          const groupFilters = getGroupFilters(group);
-          const isExpanded = expandedGroups.has(group.id);
-
-          return (
-            <View key={group.id} style={styles.section}>
-              <TouchableOpacity
-                style={[
-                  styles.groupHeader,
-                  { backgroundColor: theme.surfaceVariant },
-                ]}
-                onPress={() => toggleGroupExpanded(group.id)}
+          {/* Global Controls */}
+          {filters.length > 0 && (
+            <View
+              style={[
+                styles.globalControls,
+                { backgroundColor: theme.surface, borderColor: theme.outline },
+              ]}
+            >
+              <Text
+                style={[styles.globalControlsTitle, { color: theme.onSurface }]}
               >
-                <View style={styles.groupHeaderContent}>
-                  <MaterialCommunityIcons
-                    name={isExpanded ? 'chevron-down' : 'chevron-right'}
-                    size={20}
-                    color={theme.onSurface}
-                  />
-                  <Text style={[styles.groupTitle, { color: theme.onSurface }]}>
-                    {group.name} ({groupFilters.length})
-                    {(() => {
-                      const filtersInGroup = getGroupFilters(group);
-                      const modes = filtersInGroup.map(f => f.mode);
-                      const allSameMode =
-                        modes.length > 0 && modes.every(m => m === modes[0]);
-                      if (!allSameMode && modes.length > 1) {
-                        return (
-                          <Text
-                            style={[
-                              styles.mixedModeIndicator,
-                              { color: theme.onSurfaceVariant },
-                            ]}
-                          >
-                            {' '}
-                            (Mixed)
-                          </Text>
-                        );
-                      }
-                      return null;
-                    })()}
+                Bulk Actions
+              </Text>
+              <View style={styles.globalButtonRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.globalButton,
+                    {
+                      backgroundColor: isBulkLoading
+                        ? theme.surfaceVariant
+                        : theme.primary,
+                    },
+                  ]}
+                  disabled={isBulkLoading}
+                  onPress={() =>
+                    performBulkOperation(() => {
+                      filters.forEach(filter => {
+                        storage.updateFilter(filter.id, { enabled: true });
+                      });
+                      groups.forEach(group => {
+                        storage.updateGroup(group.id, { enabled: true });
+                      });
+                      storage.updateFilterState({ lastApplied: Date.now() });
+                      loadData();
+                    }, 'Enable All')
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.globalButtonText,
+                      { color: theme.onPrimary },
+                    ]}
+                  >
+                    {isBulkLoading ? 'Processing...' : 'Enable All'}
                   </Text>
+                </TouchableOpacity>
 
-                  {/* Group Mode Controls */}
-                  <View style={styles.groupModeContainer}>
-                    {(() => {
-                      const filtersInGroup = getGroupFilters(group);
-                      const modes = filtersInGroup.map(f => f.mode);
-                      const allSameMode =
-                        modes.length > 0 && modes.every(m => m === modes[0]);
-                      const currentGroupMode = allSameMode ? modes[0] : null;
+                <TouchableOpacity
+                  style={[
+                    styles.globalButton,
+                    {
+                      backgroundColor: isBulkLoading
+                        ? theme.surfaceVariant
+                        : theme.outline,
+                    },
+                  ]}
+                  disabled={isBulkLoading}
+                  onPress={() =>
+                    performBulkOperation(() => {
+                      filters.forEach(filter => {
+                        storage.updateFilter(filter.id, { enabled: false });
+                      });
+                      groups.forEach(group => {
+                        storage.updateGroup(group.id, { enabled: false });
+                      });
+                      storage.updateFilterState({ lastApplied: Date.now() });
+                      loadData();
+                    }, 'Disable All')
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.globalButtonText,
+                      { color: theme.onSurface },
+                    ]}
+                  >
+                    {isBulkLoading ? 'Processing...' : 'Disable All'}
+                  </Text>
+                </TouchableOpacity>
 
-                      return [
-                        {
-                          value: 'contains',
-                          label: 'Include',
-                          icon: '✓',
-                          color: 'primary',
-                        },
-                        {
-                          value: 'not_contains',
-                          label: 'Exclude',
-                          icon: '✗',
-                          color: 'error',
-                        },
-                      ].map(option => (
-                        <TouchableOpacity
-                          key={option.value}
-                          style={styles.groupModeOption}
-                          onPress={() => {
-                            storage.updateGroup(group.id, {
-                              mode: option.value as 'contains' | 'not_contains',
-                            });
+                <TouchableOpacity
+                  style={[
+                    styles.globalButton,
+                    {
+                      backgroundColor: isBulkLoading
+                        ? theme.surfaceVariant
+                        : theme.secondary,
+                    },
+                  ]}
+                  disabled={isBulkLoading}
+                  onPress={() =>
+                    performBulkOperation(() => {
+                      filters.forEach(filter => {
+                        storage.updateFilter(filter.id, {
+                          enabled: !filter.enabled,
+                        });
+                      });
+                      groups.forEach(group => {
+                        storage.updateGroup(group.id, {
+                          enabled: !group.enabled,
+                        });
+                      });
+                      storage.updateFilterState({ lastApplied: Date.now() });
+                      loadData();
+                    }, 'Toggle All')
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.globalButtonText,
+                      { color: theme.onSecondary },
+                    ]}
+                  >
+                    {isBulkLoading ? 'Processing...' : 'Toggle All'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
-                            const groupFiltersToUpdate = getGroupFilters(group);
-                            groupFiltersToUpdate.forEach(filter => {
-                              storage.updateFilter(filter.id, {
+          {/* Ungrouped Filters */}
+          {ungroupedFilters.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.onSurface }]}>
+                Individual Filters
+              </Text>
+              {ungroupedFilters.map(filter => (
+                <FilterItem
+                  key={filter.id}
+                  filter={filter}
+                  theme={theme}
+                  onEdit={() => handleEditFilter(filter)}
+                  onDelete={() => handleFilterDelete(filter.id)}
+                  onToggle={enabled => toggleFilterEnabled(filter.id, enabled)}
+                  onManageGroups={() => handleManageGroupFilters(filter)}
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Groups */}
+          {groups.map(group => {
+            const groupFilters = getGroupFilters(group);
+            const isExpanded = expandedGroups.has(group.id);
+
+            return (
+              <View key={group.id} style={styles.section}>
+                <TouchableOpacity
+                  style={[
+                    styles.groupHeader,
+                    { backgroundColor: theme.surfaceVariant },
+                  ]}
+                  onPress={() => toggleGroupExpanded(group.id)}
+                >
+                  <View style={styles.groupHeaderContent}>
+                    <MaterialCommunityIcons
+                      name={isExpanded ? 'chevron-down' : 'chevron-right'}
+                      size={20}
+                      color={theme.onSurface}
+                    />
+                    <Text
+                      style={[styles.groupTitle, { color: theme.onSurface }]}
+                    >
+                      {group.name} ({groupFilters.length})
+                      {(() => {
+                        const filtersInGroup = getGroupFilters(group);
+                        const modes = filtersInGroup.map(f => f.mode);
+                        const allSameMode =
+                          modes.length > 0 && modes.every(m => m === modes[0]);
+                        if (!allSameMode && modes.length > 1) {
+                          return (
+                            <Text
+                              style={[
+                                styles.mixedModeIndicator,
+                                { color: theme.onSurfaceVariant },
+                              ]}
+                            >
+                              {' '}
+                              (Mixed)
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </Text>
+
+                    {/* Group Mode Controls */}
+                    <View style={styles.groupModeContainer}>
+                      {(() => {
+                        const filtersInGroup = getGroupFilters(group);
+                        const modes = filtersInGroup.map(f => f.mode);
+                        const allSameMode =
+                          modes.length > 0 && modes.every(m => m === modes[0]);
+                        const currentGroupMode = allSameMode ? modes[0] : null;
+
+                        return [
+                          {
+                            value: 'contains',
+                            label: 'Include',
+                            icon: '✓',
+                            color: 'primary',
+                          },
+                          {
+                            value: 'not_contains',
+                            label: 'Exclude',
+                            icon: '✗',
+                            color: 'error',
+                          },
+                        ].map(option => (
+                          <TouchableOpacity
+                            key={option.value}
+                            style={styles.groupModeOption}
+                            onPress={() => {
+                              storage.updateGroup(group.id, {
                                 mode: option.value as
                                   | 'contains'
                                   | 'not_contains',
                               });
-                            });
 
-                            storage.updateFilterState({
-                              lastApplied: Date.now(),
-                            });
-                            loadData();
-                          }}
-                        >
-                          <View
-                            style={[
-                              styles.groupModeButton,
-                              { borderColor: theme.outline },
-                              currentGroupMode === option.value && {
-                                backgroundColor:
-                                  option.color === 'primary'
-                                    ? theme.primary
-                                    : theme.error,
-                                borderColor:
-                                  option.color === 'primary'
-                                    ? theme.primary
-                                    : theme.error,
-                              },
-                            ]}
+                              const groupFiltersToUpdate =
+                                getGroupFilters(group);
+                              groupFiltersToUpdate.forEach(filter => {
+                                storage.updateFilter(filter.id, {
+                                  mode: option.value as
+                                    | 'contains'
+                                    | 'not_contains',
+                                });
+                              });
+
+                              storage.updateFilterState({
+                                lastApplied: Date.now(),
+                              });
+                              loadData();
+                            }}
                           >
-                            {currentGroupMode === option.value && (
-                              <Text
-                                style={[
-                                  styles.groupModeIcon,
-                                  {
-                                    color:
-                                      option.color === 'primary'
-                                        ? theme.onPrimary
-                                        : theme.onError,
-                                  },
-                                ]}
-                              >
-                                {option.icon}
-                              </Text>
-                            )}
-                          </View>
-                          <Text
-                            style={[
-                              styles.groupModeLabel,
-                              {
-                                color:
-                                  currentGroupMode === option.value
-                                    ? option.color === 'primary'
+                            <View
+                              style={[
+                                styles.groupModeButton,
+                                { borderColor: theme.outline },
+                                currentGroupMode === option.value && {
+                                  backgroundColor:
+                                    option.color === 'primary'
                                       ? theme.primary
-                                      : theme.error
-                                    : theme.onSurfaceVariant,
-                              },
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ));
-                    })()}
+                                      : theme.error,
+                                  borderColor:
+                                    option.color === 'primary'
+                                      ? theme.primary
+                                      : theme.error,
+                                },
+                              ]}
+                            >
+                              {currentGroupMode === option.value && (
+                                <Text
+                                  style={[
+                                    styles.groupModeIcon,
+                                    {
+                                      color:
+                                        option.color === 'primary'
+                                          ? theme.onPrimary
+                                          : theme.onError,
+                                    },
+                                  ]}
+                                >
+                                  {option.icon}
+                                </Text>
+                              )}
+                            </View>
+                            <Text
+                              style={[
+                                styles.groupModeLabel,
+                                {
+                                  color:
+                                    currentGroupMode === option.value
+                                      ? option.color === 'primary'
+                                        ? theme.primary
+                                        : theme.error
+                                      : theme.onSurfaceVariant,
+                                },
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ));
+                      })()}
+                    </View>
                   </View>
-                </View>
-                <View style={styles.groupActions}>
-                  <TouchableOpacity
-                    style={styles.groupActionButton}
-                    onPress={() => handleEditGroup(group)}
-                  >
-                    <MaterialCommunityIcons
-                      name="pencil"
-                      size={16}
-                      color={theme.onSurfaceVariant}
+                  <View style={styles.groupActions}>
+                    <TouchableOpacity
+                      style={styles.groupActionButton}
+                      onPress={() => handleEditGroup(group)}
+                    >
+                      <MaterialCommunityIcons
+                        name="pencil"
+                        size={16}
+                        color={theme.onSurfaceVariant}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.groupActionButton}
+                      onPress={() => handleGroupDelete(group.id)}
+                    >
+                      <MaterialCommunityIcons
+                        name="delete"
+                        size={16}
+                        color={theme.error}
+                      />
+                    </TouchableOpacity>
+                    <Switch
+                      value={group.enabled}
+                      onValueChange={enabled =>
+                        toggleGroupEnabled(group.id, enabled)
+                      }
+                      trackColor={{ false: theme.outline, true: theme.primary }}
+                      thumbColor={
+                        group.enabled ? theme.onPrimary : theme.onSurfaceVariant
+                      }
                     />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.groupActionButton}
-                    onPress={() => handleGroupDelete(group.id)}
+                  </View>
+                </TouchableOpacity>
+
+                {group.description && (
+                  <Text
+                    style={[
+                      styles.groupDescription,
+                      { color: theme.onSurfaceVariant },
+                    ]}
                   >
-                    <MaterialCommunityIcons
-                      name="delete"
-                      size={16}
-                      color={theme.error}
+                    {group.description}
+                  </Text>
+                )}
+
+                {isExpanded &&
+                  groupFilters.map(filter => (
+                    <FilterItem
+                      key={filter.id}
+                      filter={filter}
+                      theme={theme}
+                      isInGroup={true}
+                      groupId={group.id}
+                      onEdit={() => handleEditFilter(filter)}
+                      onDelete={() => handleFilterDelete(filter.id)}
+                      onToggle={enabled =>
+                        toggleFilterEnabled(filter.id, enabled)
+                      }
+                      onRemoveFromGroup={handleRemoveFilterFromGroup}
                     />
-                  </TouchableOpacity>
-                  <Switch
-                    value={group.enabled}
-                    onValueChange={enabled =>
-                      toggleGroupEnabled(group.id, enabled)
-                    }
-                    trackColor={{ false: theme.outline, true: theme.primary }}
-                    thumbColor={
-                      group.enabled ? theme.onPrimary : theme.onSurfaceVariant
-                    }
-                  />
-                </View>
-              </TouchableOpacity>
+                  ))}
+              </View>
+            );
+          })}
 
-              {group.description && (
-                <Text
-                  style={[
-                    styles.groupDescription,
-                    { color: theme.onSurfaceVariant },
-                  ]}
-                >
-                  {group.description}
-                </Text>
-              )}
-
-              {isExpanded &&
-                groupFilters.map(filter => (
-                  <FilterItem
-                    key={filter.id}
-                    filter={filter}
-                    theme={theme}
-                    isInGroup={true}
-                    groupId={group.id}
-                    onEdit={() => handleEditFilter(filter)}
-                    onDelete={() => handleFilterDelete(filter.id)}
-                    onToggle={enabled =>
-                      toggleFilterEnabled(filter.id, enabled)
-                    }
-                    onRemoveFromGroup={handleRemoveFilterFromGroup}
-                  />
-                ))}
+          {/* Empty state */}
+          {filters.length === 0 && (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons
+                name="filter-outline"
+                size={64}
+                color={theme.onSurfaceVariant}
+              />
+              <Text style={[styles.emptyTitle, { color: theme.onSurface }]}>
+                No Filters Yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptyDescription,
+                  { color: theme.onSurfaceVariant },
+                ]}
+              >
+                Create filters to hide or show novels based on titles, authors,
+                genres, and more.
+              </Text>
             </View>
-          );
-        })}
+          )}
+        </ScrollView>
 
-        {/* Empty state */}
-        {filters.length === 0 && (
-          <View style={styles.emptyState}>
-            <MaterialCommunityIcons
-              name="filter-outline"
-              size={64}
-              color={theme.onSurfaceVariant}
-            />
-            <Text style={[styles.emptyTitle, { color: theme.onSurface }]}>
-              No Filters Yet
-            </Text>
-            <Text
-              style={[
-                styles.emptyDescription,
-                { color: theme.onSurfaceVariant },
-              ]}
-            >
-              Create filters to hide or show novels based on titles, authors,
-              genres, and more.
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+        {/* FABs */}
+        <FAB
+          style={[
+            styles.filterFab,
+            {
+              backgroundColor: theme.primary,
+              bottom: insets.bottom + 16,
+            },
+          ]}
+          icon="plus"
+          label="Filter"
+          onPress={() => {
+            setShowFilterForm(true);
+          }}
+        />
 
-      {/* FABs */}
-      <FAB
-        style={[
-          styles.filterFab,
-          {
-            backgroundColor: theme.primary,
-            bottom: insets.bottom + 16,
-          },
-        ]}
-        icon="plus"
-        label="Filter"
-        onPress={() => {
-          setShowFilterForm(true);
-        }}
-      />
-
-      <FAB
-        style={[
-          styles.groupFab,
-          {
-            backgroundColor: theme.secondary,
-            bottom: insets.bottom + 80,
-          },
-        ]}
-        icon="folder-plus"
-        label="Group"
-        onPress={() => {
-          setShowGroupForm(true);
-        }}
-      />
+        <FAB
+          style={[
+            styles.groupFab,
+            {
+              backgroundColor: theme.secondary,
+              bottom: insets.bottom + 80,
+            },
+          ]}
+          icon="folder-plus"
+          label="Group"
+          onPress={() => {
+            setShowGroupForm(true);
+          }}
+        />
+      </SafeAreaView>
 
       {/* Filter Form Modal */}
       {showFilterForm && (
@@ -1095,7 +1108,7 @@ const LocalFiltersScreen: React.FC<LocalFiltersScreenProps> = ({
           </View>
         </View>
       )}
-    </View>
+    </>
   );
 };
 
@@ -1348,6 +1361,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 16,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   statsContainer: {
     flexDirection: 'row',

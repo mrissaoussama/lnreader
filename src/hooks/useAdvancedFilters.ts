@@ -17,12 +17,8 @@ export interface UseAdvancedFiltersResult {
   hiddenCount: number;
 
   toggleFiltersEnabled: () => void;
-  openFilterManager: () => void;
 
   applyFiltersToList: <T extends NovelItem | NovelInfo>(list: T[]) => T[];
-
-  filterManagerVisible: boolean;
-  closeFilterManager: () => void;
 }
 
 export const useAdvancedFilters = (
@@ -33,7 +29,6 @@ export const useAdvancedFilters = (
 
   const [filters, setFilters] = useState<BrowseFilter[]>([]);
   const [groups, setGroups] = useState<BrowseFilterGroup[]>([]);
-  const [filterManagerVisible, setFilterManagerVisible] = useState(false);
   const [filterState, setFilterState] = useState(() =>
     storage.getFilterState(),
   );
@@ -77,15 +72,6 @@ export const useAdvancedFilters = (
       setLastAppliedResults({ total: 0, hidden: 0 });
     }
   }, [storage, filterState.enabled]);
-
-  const openFilterManager = useCallback(() => {
-    setFilterManagerVisible(true);
-  }, []);
-
-  const closeFilterManager = useCallback(() => {
-    setFilterManagerVisible(false);
-    loadFiltersAndGroups();
-  }, [loadFiltersAndGroups]);
 
   const applyFiltersToList = useCallback(
     <T extends NovelItem | NovelInfo>(list: T[]): T[] => {
@@ -132,11 +118,7 @@ export const useAdvancedFilters = (
     hiddenCount: lastAppliedResults.hidden,
 
     toggleFiltersEnabled,
-    openFilterManager,
 
     applyFiltersToList,
-
-    filterManagerVisible,
-    closeFilterManager,
   };
 };
