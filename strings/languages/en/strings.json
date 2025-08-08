@@ -31,7 +31,11 @@
     "recreateDBIndexes": "Recreate DB indexes",
     "recreateDBIndexesToast": "Recreated DB indexes",
     "recreateDBIndexesDialogTitle": "All DB indexes will be recreated.\nThis may take a while.",
-    "recreateDBIndexesDesc": "Recreates DB indexes. This may improve performance on slower devices."
+    "recreateDBIndexesDesc": "Recreates DB indexes. This may improve performance on slower devices.",
+    "clearAllNotes": "Clear all notes",
+    "clearAllNotesDesc": "Delete all novel notes",
+    "clearNotesWarning": "All novel notes will be permanently deleted.",
+    "clearNotesMessage": "All notes cleared."
   },
   "appearance": "Appearance",
   "appearanceScreen": {
@@ -297,6 +301,7 @@
         "downloadBadges": "Download badges",
         "list": "List",
         "noTitle": "Cover only grid",
+        "notesBadges": "Notes badges",
         "numberOfItems": "Number of Items",
         "showNoOfItems": "Show number of items",
         "unread": "Unread",

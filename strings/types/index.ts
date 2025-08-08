@@ -33,6 +33,10 @@ export interface StringMap {
   'advancedSettingsScreen.recreateDBIndexesToast': 'string';
   'advancedSettingsScreen.recreateDBIndexesDialogTitle': 'string';
   'advancedSettingsScreen.recreateDBIndexesDesc': 'string';
+  'advancedSettingsScreen.clearAllNotes': 'string';
+  'advancedSettingsScreen.clearAllNotesDesc': 'string';
+  'advancedSettingsScreen.clearNotesWarning': 'string';
+  'advancedSettingsScreen.clearNotesMessage': 'string';
   'appearance': 'string';
   'appearanceScreen.accentColor': 'string';
   'appearanceScreen.alwaysShowNavLabels': 'string';
@@ -247,6 +251,7 @@ export interface StringMap {
   'libraryScreen.bottomSheet.display.downloadBadges': 'string';
   'libraryScreen.bottomSheet.display.list': 'string';
   'libraryScreen.bottomSheet.display.noTitle': 'string';
+  'libraryScreen.bottomSheet.display.notesBadges': 'string';
   'libraryScreen.bottomSheet.display.numberOfItems': 'string';
   'libraryScreen.bottomSheet.display.showNoOfItems': 'string';
   'libraryScreen.bottomSheet.display.unread': 'string';

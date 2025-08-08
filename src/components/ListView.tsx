@@ -13,6 +13,7 @@ interface ListViewProps {
   downloadBadge?: React.ReactNode;
   unreadBadge?: React.ReactNode;
   inLibraryBadge?: React.ReactNode;
+  notesBadge?: React.ReactNode;
   theme: ThemeColors;
   onPress: () => void;
   isSelected?: boolean;
@@ -24,6 +25,7 @@ const ListView = ({
   downloadBadge,
   unreadBadge,
   inLibraryBadge,
+  notesBadge,
   theme,
   onPress,
   isSelected,
@@ -57,6 +59,7 @@ const ListView = ({
       <View style={styles.badgeContainer}>
         {downloadBadge}
         {unreadBadge}
+        {notesBadge}
         {inLibraryBadge}
       </View>
     </Pressable>

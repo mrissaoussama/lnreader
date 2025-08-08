@@ -16,6 +16,7 @@ export const createNovelTableQuery = `
     chaptersDownloaded INTEGER DEFAULT 0,
     chaptersUnread INTEGER DEFAULT 0,
     totalChapters INTEGER DEFAULT 0,
+    hasNote INTEGER DEFAULT 0,
     lastReadAt TEXT,
     lastUpdatedAt TEXT,
     UNIQUE(path, pluginId)

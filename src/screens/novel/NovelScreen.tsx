@@ -1,4 +1,11 @@
-import React, { Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+} from 'react';
 import { StyleSheet, View, StatusBar, Text, Share } from 'react-native';
 import { Drawer } from 'react-native-drawer-layout';
 import Animated, {
@@ -30,6 +37,9 @@ import { ThemeColors } from '@theme/types';
 import { SafeAreaView } from '@components';
 import { useNovelContext } from './NovelContext';
 import { FlashList } from '@shopify/flash-list';
+import NotesModal from './components/NotesModal';
+import AlternativeTitlesModal from './components/AlternativeTitlesModal';
+import { hasNote } from '@database/queries/NotesQueries';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -56,6 +66,9 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
 
   const [selected, setSelected] = useState<ChapterInfo[]>([]);
   const [editInfoModal, showEditInfoModal] = useState(false);
+  const [notesModal, setNotesModal] = useState(false);
+  const [alternativeTitlesModal, setAlternativeTitlesModal] = useState(false);
+  const [novelHasNote, setNovelHasNote] = useState(false);
 
   const chapterListRef = useRef<FlashList<ChapterInfo> | null>(null);
 
@@ -67,6 +80,16 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     setTrue: openDrawer,
     setFalse: closeDrawer,
   } = useBoolean();
+
+  useEffect(() => {
+    const checkNote = async () => {
+      if (novel?.id) {
+        const hasNoteResult = await hasNote(novel.id);
+        setNovelHasNote(hasNoteResult);
+      }
+    };
+    checkNote();
+  }, [novel?.id]);
 
   // TODO: fix this
   // useEffect(() => {
@@ -98,6 +121,13 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   const deleteChs = useCallback(() => {
     deleteChapters(chapters.filter(c => c.isDownloaded));
   }, [chapters, deleteChapters]);
+
+  const showNotesModal = () => setNotesModal(true);
+  const hideNotesModal = () => setNotesModal(false);
+
+  const handleNoteChanged = (hasNoteValue: boolean) => {
+    setNovelHasNote(hasNoteValue);
+  };
   const shareNovel = () => {
     if (!novel) {
       return;
@@ -258,6 +288,11 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 downloadCustomChapterModal={openDlChapterModal}
                 showJumpToChapterModal={showJumpToChapterModal}
                 shareNovel={shareNovel}
+                showNotesModal={showNotesModal}
+                hasNote={novelHasNote}
+                showAlternativeTitlesModal={() =>
+                  setAlternativeTitlesModal(true)
+                }
                 theme={theme}
                 isLocal={novel?.isLocal ?? route.params?.isLocal}
                 goBack={navigation.goBack}
@@ -342,6 +377,21 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                   hideModal={() => showEditInfoModal(false)}
                   novel={novel}
                   setNovel={setNovel}
+                  theme={theme}
+                />
+                <NotesModal
+                  visible={notesModal}
+                  onDismiss={hideNotesModal}
+                  novelId={novel.id}
+                  novelName={novel.name}
+                  theme={theme}
+                  onNoteChanged={handleNoteChanged}
+                />
+                <AlternativeTitlesModal
+                  visible={alternativeTitlesModal}
+                  onDismiss={() => setAlternativeTitlesModal(false)}
+                  novelId={novel.id}
+                  novelName={novel.name}
                   theme={theme}
                 />
                 <DownloadCustomChapterModal

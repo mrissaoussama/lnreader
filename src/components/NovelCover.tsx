@@ -90,6 +90,7 @@ function NovelCover<
     displayMode = DisplayModes.Comfortable,
     showDownloadBadges = true,
     showUnreadBadges = true,
+    showNotesBadges = true,
     novelsPerRow = 3,
   } = useLibrarySettings();
 
@@ -179,6 +180,9 @@ function NovelCover<
                   showDownloadBadges={showDownloadBadges}
                 />
               ) : null}
+              {showNotesBadges && isFromDB(item) && item.hasNote === 1 ? (
+                <NotesBadge theme={theme} />
+              ) : null}
             </>
           ) : null}
           {inActivity ? <InActivityBadge theme={theme} /> : null}
@@ -229,6 +233,11 @@ function NovelCover<
             chaptersUnread={item.chaptersUnread}
             showDownloadBadges={showDownloadBadges}
           />
+        ) : null
+      }
+      notesBadge={
+        showNotesBadges && isFromDB(item) && item.hasNote === 1 ? (
+          <NotesBadge theme={theme} />
         ) : null
       }
       inLibraryBadge={libraryStatus && <InLibraryBadge theme={theme} />}
@@ -308,6 +317,21 @@ const InActivityBadge = ({ theme }: { theme: ThemeColors }) => (
   >
     <ActivityIndicator animating={true} size={10} color={theme.onPrimary} />
   </View>
+);
+
+const NotesBadge = ({ theme }: { theme: ThemeColors }) => (
+  <Text
+    style={[
+      styles.notesBadge,
+      {
+        backgroundColor: theme.secondary,
+        color: theme.onSecondary,
+      },
+      styles.standardBorderRadius,
+    ]}
+  >
+    📝
+  </Text>
 );
 
 interface BadgeProps {
@@ -423,6 +447,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  notesBadge: {
+    fontSize: 10,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    borderRadius: 4,
   },
 
   opac: {

@@ -757,11 +757,7 @@ const restoreNovelFiles = async (
             chapters: backupNovelData.chapters || [],
           };
 
-          const novelId = await insertNovelAndChapters(
-            pluginId,
-            sourceNovel,
-            true,
-          );
+          const novelId = await insertNovelAndChapters(pluginId, sourceNovel);
 
           if (novelId) {
             const novelChapters = backupNovelData.chapters || [];
