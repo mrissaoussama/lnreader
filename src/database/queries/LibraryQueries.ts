@@ -1,14 +1,17 @@
 import { LibraryFilter } from '@screens/library/constants/constants';
-import { LibraryNovelInfo, NovelInfo } from '../types';
+import { LibraryNovelInfo, NovelInfo, DBNovelInfo } from '../types';
 import { getAllSync } from '../utils/helpers';
-
 export const getLibraryNovelsFromDb = (
   sortOrder?: string,
   filter?: string,
   searchText?: string,
   downloadedOnlyMode?: boolean,
-): NovelInfo[] => {
-  let query = 'SELECT * FROM Novel WHERE inLibrary = 1';
+): DBNovelInfo[] => {
+  let query = `SELECT n.*, 
+                      CASE WHEN nt.novelId IS NOT NULL THEN 1 ELSE 0 END as hasNote
+               FROM Novel n
+               LEFT JOIN Note nt ON n.id = nt.novelId
+               WHERE n.inLibrary = 1`;
 
   if (filter) {
     query += ` AND ${filter} `;
@@ -16,18 +19,19 @@ export const getLibraryNovelsFromDb = (
   if (downloadedOnlyMode) {
     query += ' ' + LibraryFilter.DownloadedOnly;
   }
-
   if (searchText) {
     query += ' AND name LIKE ? ';
   }
-
   if (sortOrder) {
     query += ` ORDER BY ${sortOrder} `;
   }
   return getAllSync<NovelInfo>([query, [searchText ?? '']]);
 };
-
-const getLibraryWithCategoryQuery = 'SELECT * FROM Novel WHERE inLibrary = 1';
+const getLibraryWithCategoryQuery = `SELECT n.*,
+                                                  CASE WHEN nt.novelId IS NOT NULL THEN 1 ELSE 0 END as hasNote
+                                           FROM Novel n
+                                           LEFT JOIN Note nt ON n.id = nt.novelId
+                                           WHERE n.inLibrary = 1`;
 // `
 //   SELECT *
 //   FROM
@@ -89,4 +93,25 @@ export const getLibraryWithCategory = ({
   const res = getAllSync<LibraryNovelInfo>([query, preparedArgument]);
 
   return res;
+};
+export const searchNovels = searchText => {
+  if (!searchText?.trim()) {
+    return [];
+  }
+  const query = `
+    SELECT DISTINCT novels.*,
+           COUNT(chapters.id) as totalChapters,
+           COUNT(CASE WHEN chapters.isDownloaded = 1 THEN 1 END) as chaptersDownloaded,
+           COUNT(CASE WHEN chapters.isUnread = 1 THEN 1 END) as chaptersUnread,
+           MAX(chapters.dateRead) as lastReadAt,
+           GROUP_CONCAT(categories.name) as categoryNames
+    FROM novels
+    LEFT JOIN chapters ON novels.id = chapters.novelId
+    LEFT JOIN novelCategory ON novels.id = novelCategory.novelId
+    LEFT JOIN categories ON novelCategory.categoryId = categories.id
+    WHERE novels.name LIKE '%' || ? || '%'
+    GROUP BY novels.id
+    ORDER BY novels.name ASC
+  `;
+  return getAllSync([query, [searchText ?? '']]);
 };

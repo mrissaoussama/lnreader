@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getCategoriesFromDb } from '@database/queries/CategoryQueries';
 import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
 
-import { Category, NovelInfo } from '@database/types';
+import { Category, NovelInfo, DBNovelInfo } from '@database/types';
 
 import { useLibrarySettings } from '@hooks/persisted';
 import { LibrarySortOrder } from '../constants/constants';
@@ -13,12 +13,12 @@ import { switchNovelToLibraryQuery } from '@database/queries/NovelQueries';
 // type Library = Category & { novels: LibraryNovelInfo[] };
 export type ExtendedCategory = Category & { novelIds: number[] };
 export type UseLibraryReturnType = {
-  library: NovelInfo[];
+  library: DBNovelInfo[];
   categories: ExtendedCategory[];
   isLoading: boolean;
   setCategories: React.Dispatch<React.SetStateAction<ExtendedCategory[]>>;
   refreshCategories: () => Promise<void>;
-  setLibrary: React.Dispatch<React.SetStateAction<NovelInfo[]>>;
+  setLibrary: React.Dispatch<React.SetStateAction<DBNovelInfo[]>>;
   novelInLibrary: (pluginId: string, novelPath: string) => boolean;
   switchNovelToLibrary: (novelPath: string, pluginId: string) => Promise<void>;
   refetchLibrary: () => void;
@@ -32,7 +32,7 @@ export const useLibrary = (): UseLibraryReturnType => {
     downloadedOnlyMode = false,
   } = useLibrarySettings();
 
-  const [library, setLibrary] = useState<NovelInfo[]>([]);
+  const [library, setLibrary] = useState<DBNovelInfo[]>([]);
   const [categories, setCategories] = useState<ExtendedCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchText, setSearchText] = useState('');

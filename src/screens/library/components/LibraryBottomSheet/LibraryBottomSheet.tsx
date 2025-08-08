@@ -112,6 +112,7 @@ const ThirdRoute = () => {
     showDownloadBadges = true,
     showNumberOfNovels = false,
     showUnreadBadges = true,
+    showNotesBadges = true,
     displayMode = DisplayModes.Comfortable,
     setLibrarySettings,
   } = useLibrarySettings();
@@ -137,6 +138,16 @@ const ThirdRoute = () => {
         onPress={() =>
           setLibrarySettings({
             showUnreadBadges: !showUnreadBadges,
+          })
+        }
+        theme={theme}
+      />
+      <Checkbox
+        label={getString('libraryScreen.bottomSheet.display.notesBadges')}
+        status={showNotesBadges}
+        onPress={() =>
+          setLibrarySettings({
+            showNotesBadges: !showNotesBadges,
           })
         }
         theme={theme}

@@ -13,6 +13,7 @@ import {
   deleteReadChaptersFromDb,
   clearUpdates,
 } from '@database/queries/ChapterQueries';
+import { deleteAllNotes } from '@database/queries/NotesQueries';
 
 import { Appbar, Button, List, Modal, SafeAreaView } from '@components';
 import { AdvancedSettingsScreenProps } from '@navigators/types';
@@ -61,6 +62,12 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
     setFalse: hideRecreateDBIndexDialog,
   } = useBoolean();
 
+  const {
+    value: clearNotesDialog,
+    setTrue: showClearNotesDialog,
+    setFalse: hideClearNotesDialog,
+  } = useBoolean();
+
   return (
     <SafeAreaView excludeTop>
       <Appbar
@@ -97,6 +104,12 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
         <List.Item
           title={getString('advancedSettingsScreen.deleteReadChapters')}
           onPress={showDeleteReadChaptersDialog}
+          theme={theme}
+        />
+        <List.Item
+          title={getString('advancedSettingsScreen.clearAllNotes')}
+          description={getString('advancedSettingsScreen.clearAllNotesDesc')}
+          onPress={showClearNotesDialog}
           theme={theme}
         />
         <List.Item
@@ -151,6 +164,17 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
             hideClearUpdatesDialog();
           }}
           onDismiss={hideClearUpdatesDialog}
+          theme={theme}
+        />
+        <ConfirmationDialog
+          message={getString('advancedSettingsScreen.clearNotesWarning')}
+          visible={clearNotesDialog}
+          onSubmit={() => {
+            deleteAllNotes();
+            showToast(getString('advancedSettingsScreen.clearNotesMessage'));
+            hideClearNotesDialog();
+          }}
+          onDismiss={hideClearNotesDialog}
           theme={theme}
         />
 

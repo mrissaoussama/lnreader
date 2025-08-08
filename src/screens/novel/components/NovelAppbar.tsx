@@ -68,6 +68,9 @@ const NovelAppbar = ({
   goBack,
   shareNovel,
   showJumpToChapterModal,
+  showNotesModal,
+  showAlternativeTitlesModal,
+  hasNote,
   headerOpacity,
 }: {
   novel: NovelInfo | undefined;
@@ -82,6 +85,9 @@ const NovelAppbar = ({
   goBack: () => void;
   shareNovel: () => void;
   showJumpToChapterModal: (arg: boolean) => void;
+  showNotesModal: () => void;
+  showAlternativeTitlesModal: () => void;
+  hasNote: boolean;
   headerOpacity: SharedValue<number>;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
@@ -179,6 +185,10 @@ const NovelAppbar = ({
               showJumpToChapterModal(true);
             }}
           />
+          <AppbarAction
+            icon={hasNote ? 'note-text' : 'note-text-outline'}
+            onPress={showNotesModal}
+          />
           {!isLocal && (
             <Menu
               theme={theme}
@@ -218,6 +228,12 @@ const NovelAppbar = ({
                 label: getString('novelScreen.edit.cover'),
                 onPress: () => {
                   setCustomNovelCover();
+                },
+              },
+              {
+                label: 'View All Alternative Titles',
+                onPress: () => {
+                  showAlternativeTitlesModal();
                 },
               },
             ]}

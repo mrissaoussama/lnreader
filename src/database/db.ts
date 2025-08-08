@@ -18,6 +18,12 @@ import {
   createChapterIndexQuery,
   dropChapterIndexQuery,
 } from './tables/ChapterTable';
+import {
+  createNotesTableQuery,
+  createNotesIndexQuery,
+  createNotesTriggerQuery,
+  dropNotesIndexQuery,
+} from './tables/NotesTable';
 
 import { createRepositoryTableQuery } from './tables/RepositoryTable';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
@@ -52,15 +58,21 @@ export const createTables = () => {
       db.runSync(createChapterTableQuery);
       db.runSync(createCategoryTriggerQuery);
       db.runSync(createChapterIndexQuery);
+      db.runSync(createNotesTableQuery);
+      db.runSync(createNotesIndexQuery);
+      db.runSync(createNotesTriggerQuery);
       db.runSync(createRepositoryTableQuery);
       db.runSync(createNovelTriggerQueryInsert);
       db.runSync(createNovelTriggerQueryUpdate);
       db.runSync(createNovelTriggerQueryDelete);
-      db.execSync('PRAGMA user_version = 1');
+      db.execSync('PRAGMA user_version = 2');
     });
   } else {
     if (userVersion < 1) {
       updateToDBVersion1();
+    }
+    if (userVersion < 2) {
+      updateToDBVersion2();
     }
   }
 };
@@ -79,8 +91,10 @@ export const recreateDBIndex = () => {
     db.withTransactionSync(() => {
       db.runSync(dropNovelIndexQuery);
       db.runSync(dropChapterIndexQuery);
+      db.runSync(dropNotesIndexQuery);
       db.runSync(createNovelIndexQuery);
       db.runSync(createChapterIndexQuery);
+      db.runSync(createNotesIndexQuery);
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -110,19 +124,19 @@ function updateToDBVersion1() {
       );
       `);
     db.runSync(`UPDATE Novel
-SET chaptersUnread = (
-    SELECT COUNT(*)
-    FROM Chapter
-    WHERE Chapter.novelId = Novel.id AND Chapter.unread = 1
-);
-`);
+      SET chaptersUnread = (
+          SELECT COUNT(*)
+          FROM Chapter
+          WHERE Chapter.novelId = Novel.id AND Chapter.unread = 1
+      );
+      `);
     db.runSync(`UPDATE Novel
-SET totalChapters = (
-    SELECT COUNT(*)
-    FROM Chapter
-    WHERE Chapter.novelId = Novel.id
-);
-`);
+      SET totalChapters = (
+          SELECT COUNT(*)
+          FROM Chapter
+          WHERE Chapter.novelId = Novel.id
+      );
+      `);
     db.runSync(`UPDATE Novel
       SET lastReadAt = (
           SELECT MAX(readTime)
@@ -141,5 +155,19 @@ SET totalChapters = (
     db.runSync(createNovelTriggerQueryUpdate);
     db.runSync(createNovelTriggerQueryDelete);
     db.execSync('PRAGMA user_version = 1');
+  });
+}
+
+function updateToDBVersion2() {
+  db.execSync('PRAGMA journal_mode = WAL');
+  db.execSync('PRAGMA synchronous = NORMAL');
+  db.execSync('PRAGMA temp_store = MEMORY');
+
+  db.withTransactionSync(() => {
+    db.runSync(createNotesTableQuery);
+    db.runSync(createNotesIndexQuery);
+    db.runSync(createNotesTriggerQuery);
+
+    db.execSync('PRAGMA user_version = 2');
   });
 }

@@ -21,12 +21,14 @@ export interface DBNovelInfo extends NovelInfo {
   chaptersUnread: number;
   lastReadAt: string;
   lastUpdatedAt: string;
+  hasNote: number;
 }
 
 export interface LibraryNovelInfo extends DBNovelInfo {
   category: string;
   chaptersUnread: number;
   chaptersDownloaded: number;
+  hasNote: number;
 }
 
 export interface ChapterInfo {
