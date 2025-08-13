@@ -13,6 +13,7 @@ import { useTheme } from '@hooks/persisted';
 import { useBrowseSource, useSearchSource } from './useBrowseSource';
 import { useBrowseSettings } from '@hooks/persisted/useSettings';
 import { useAdvancedFilters } from '@hooks/useAdvancedFilters';
+import { useLibraryMatching } from '@hooks/useLibraryMatching';
 
 import { NovelItem } from '@plugins/types';
 import { getString } from '@strings/translations';
@@ -38,6 +39,7 @@ const OptimizedNovelItem = React.memo<{
   isSelected: boolean;
   addSkeletonLoading: boolean;
   onLongPress: () => Promise<void>;
+  match: any;
 }>(
   ({
     item,
@@ -50,6 +52,7 @@ const OptimizedNovelItem = React.memo<{
     isSelected,
     addSkeletonLoading,
     onLongPress,
+    match,
   }) => {
     return (
       <NovelCover
@@ -57,6 +60,7 @@ const OptimizedNovelItem = React.memo<{
         theme={theme}
         libraryStatus={libraryStatus}
         inActivity={inActivity}
+        match={match}
         onPress={() => {
           if (isMultiSelectMode) {
             onToggleSelection();
@@ -103,6 +107,11 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     clearSearchResults,
     searchError,
   } = useSearchSource(pluginId, isAnyFilterOpen);
+
+  const { matches: libraryMatches } = useLibraryMatching({
+    novels: searchResults.length > 0 ? searchResults : novels,
+    pluginId,
+  });
 
   const { hiddenCount, applyFiltersToList } =
     useAdvancedFilters(isAnyFilterOpen);
@@ -376,6 +385,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                     setInActivity(prev => ({ ...prev, [item.path]: false }));
                   }
                 }}
+                match={libraryMatches[item.path]}
               />
             );
           }}
@@ -484,5 +494,14 @@ const styles = StyleSheet.create({
   filterStatusText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  container: {
+    flex: 1,
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 16,
   },
 });

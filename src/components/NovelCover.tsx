@@ -23,6 +23,7 @@ import { getString } from '@strings/translations';
 import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
 import { defaultCover } from '@plugins/helpers/constants';
 import { ActivityIndicator } from 'react-native-paper';
+import { MatchType } from '@utils/libraryMatching';
 
 interface UnreadBadgeProps {
   chaptersDownloaded: number;
@@ -64,6 +65,7 @@ interface INovelCover<TNovel> {
   onLongPress: (item: TNovel) => void;
   selectedNovelIds: number[];
   globalSearch?: boolean;
+  match?: MatchType | false;
 }
 
 function isFromDB(
@@ -85,6 +87,7 @@ function NovelCover<
   onLongPress,
   globalSearch,
   selectedNovelIds,
+  match,
 }: INovelCover<TNovel>) {
   const {
     displayMode = DisplayModes.Comfortable,
@@ -162,6 +165,9 @@ function NovelCover<
       >
         <View style={styles.badgeContainer}>
           {libraryStatus ? <InLibraryBadge theme={theme} /> : null}
+          {match && !libraryStatus ? (
+            <LibraryMatchBadge matchType={match} theme={theme} />
+          ) : null}
           {isFromDB(item) ? (
             <>
               {showDownloadBadges && item.chaptersDownloaded > 0 ? (
@@ -241,6 +247,9 @@ function NovelCover<
         ) : null
       }
       inLibraryBadge={libraryStatus && <InLibraryBadge theme={theme} />}
+      libraryMatchBadge={
+        match ? <LibraryMatchBadge matchType={match} theme={theme} /> : null
+      }
       theme={theme}
       onPress={
         selectedNovelIds && selectedNovelIds.length > 0 ? selectNovel : onPress
@@ -388,6 +397,32 @@ const DownloadBadge: React.FC<DownloadBadgeProps> = ({
   </Text>
 );
 
+interface LibraryMatchBadgeProps {
+  theme: ThemeColors;
+  matchType: 'title';
+}
+
+const LibraryMatchBadge: React.FC<LibraryMatchBadgeProps> = ({ theme }) => {
+  const badgeStyle = {
+    backgroundColor: theme.primary,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+    color: theme.onPrimary,
+    fontSize: 10,
+    fontWeight: 'bold',
+  };
+
+  return (
+    <View style={styles.libraryMatchBadge}>
+      <Text style={badgeStyle}>
+        {/* in case image matching is added in the future */}
+        {/*matchType === 'title' ? 'T' : ''*/} 'T'
+      </Text>
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
   LeftBorderRadius: {
     borderBottomLeftRadius: 4,
@@ -453,6 +488,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingTop: 2,
     borderRadius: 4,
+  },
+  libraryMatchBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 20,
+    minHeight: 16,
+  },
+  libraryMatchBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  libraryMatchBadgeBackground: {
+    backgroundColor: '#6B7280',
+  },
+  titleMatchBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 20,
+    minHeight: 16,
+  },
+  titleMatchBadgeBackground: {
+    backgroundColor: '#3B82F6',
+  },
+  imageMatchBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 20,
+    minHeight: 16,
+  },
+  imageMatchBadgeBackground: {
+    backgroundColor: '#10B981',
   },
 
   opac: {

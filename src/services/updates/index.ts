@@ -1,6 +1,6 @@
 import {
   getLibraryWithCategory,
-  getLibraryNovelsFromDb,
+  getLibraryNovelsAsync,
 } from '../../database/queries/LibraryQueries';
 
 import { showToast } from '../../utils/showToast';
@@ -44,7 +44,7 @@ const updateLibrary = async (
         (onlyUpdateOngoingNovels ? " AND status = 'Ongoing'" : ''),
     });
   } else {
-    libraryNovels = getLibraryNovelsFromDb(
+    libraryNovels = getLibraryNovelsAsync(
       '',
       onlyUpdateOngoingNovels ? "status = 'Ongoing'" : '',
     ) as LibraryNovelInfo[];
