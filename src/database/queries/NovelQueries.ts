@@ -20,6 +20,7 @@ import { NOVEL_STORAGE } from '@utils/Storages';
 import { downloadFile } from '@plugins/helpers/fetch';
 import { getPlugin } from '@plugins/pluginManager';
 import { db } from '@database/db';
+import { updateNovelHasMatch } from '@database/queries/LibraryQueries';
 import NativeFile from '@specs/NativeFile';
 
 export const insertNovelAndChapters = async (

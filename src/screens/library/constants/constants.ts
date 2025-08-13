@@ -25,6 +25,10 @@ export const libraryFilterList = [
     label: getString('libraryScreen.bottomSheet.filters.completed'),
     filter: LibraryFilter.Completed,
   },
+  {
+    label: getString('libraryMatching.showNovelsWithMatches'),
+    filter: 'hasMatch' as const,
+  },
 ];
 
 // NIL: Novels in Library

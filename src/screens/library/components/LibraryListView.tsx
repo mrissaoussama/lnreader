@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import { xor } from 'lodash-es';
 
@@ -12,6 +12,7 @@ import { getString } from '@strings/translations';
 import { useTheme } from '@hooks/persisted';
 import { LibraryScreenProps } from '@navigators/types';
 import ServiceManager from '@services/ServiceManager';
+import { useLibraryMatching } from '@hooks/useLibraryMatching';
 
 interface Props {
   categoryId: number;
@@ -33,12 +34,17 @@ export const LibraryView: React.FC<Props> = ({
   novels,
 }) => {
   const theme = useTheme();
+  const memoizedNovels = useMemo(() => novels, [novels]);
+  const { matches: libraryMatches } = useLibraryMatching({
+    novels: memoizedNovels,
+  });
   const renderItem = ({ item }: { item: NovelInfo }) => {
     return (
       <NovelCover
         item={item}
         theme={theme}
         isSelected={selectedNovelIds.includes(item.id)}
+        match={libraryMatches[item.id]}
         onLongPress={() =>
           setSelectedNovelIds(xor(selectedNovelIds, [item.id]))
         }

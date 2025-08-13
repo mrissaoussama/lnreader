@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Portal, Appbar, Snackbar } from 'react-native-paper';
-import { useDownload, useTheme } from '@hooks/persisted';
+import { useDownload, useTheme, useBrowseSettings } from '@hooks/persisted';
 import JumpToChapterModal from './components/JumpToChapterModal';
 import { Actionbar } from '../../components/Actionbar/Actionbar';
 import EditInfoModal from './components/EditInfoModal';
@@ -39,7 +39,9 @@ import { useNovelContext } from './NovelContext';
 import { FlashList } from '@shopify/flash-list';
 import NotesModal from './components/NotesModal';
 import AlternativeTitlesModal from './components/AlternativeTitlesModal';
+import LibraryMatchesModal from './components/LibraryMatchesModal';
 import { hasNote } from '@database/queries/NotesQueries';
+import { findLibraryMatches, LibraryMatch } from '@utils/libraryMatching';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -63,11 +65,14 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
 
   const theme = useTheme();
   const { downloadChapters } = useDownload();
+  const { novelMatching } = useBrowseSettings();
 
   const [selected, setSelected] = useState<ChapterInfo[]>([]);
   const [editInfoModal, showEditInfoModal] = useState(false);
   const [notesModal, setNotesModal] = useState(false);
   const [alternativeTitlesModal, setAlternativeTitlesModal] = useState(false);
+  const [libraryMatchesModal, setLibraryMatchesModal] = useState(false);
+  const [libraryMatches, setLibraryMatches] = useState<LibraryMatch[]>([]);
   const [novelHasNote, setNovelHasNote] = useState(false);
 
   const chapterListRef = useRef<FlashList<ChapterInfo> | null>(null);
@@ -90,6 +95,23 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     };
     checkNote();
   }, [novel?.id]);
+
+  useEffect(() => {
+    const getLibraryMatches = async () => {
+      if (novel) {
+        const matches = await findLibraryMatches(
+          novel.name,
+          novelMatching?.libraryRule || 'normalized-contains',
+          novel.pluginId,
+          novel.path,
+          novel.alternativeTitles || [],
+          novel.id,
+        );
+        setLibraryMatches(matches);
+      }
+    };
+    getLibraryMatches();
+  }, [novel, novelMatching?.libraryRule]);
 
   // TODO: fix this
   // useEffect(() => {
@@ -124,6 +146,9 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
 
   const showNotesModal = () => setNotesModal(true);
   const hideNotesModal = () => setNotesModal(false);
+
+  const showLibraryMatchesModal = () => setLibraryMatchesModal(true);
+  const hideLibraryMatchesModal = () => setLibraryMatchesModal(false);
 
   const handleNoteChanged = (hasNoteValue: boolean) => {
     setNovelHasNote(hasNoteValue);
@@ -293,6 +318,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 showAlternativeTitlesModal={() =>
                   setAlternativeTitlesModal(true)
                 }
+                showLibraryMatchesModal={showLibraryMatchesModal}
+                libraryMatchesCount={libraryMatches.length}
                 theme={theme}
                 isLocal={novel?.isLocal ?? route.params?.isLocal}
                 goBack={navigation.goBack}
@@ -392,7 +419,25 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                   onDismiss={() => setAlternativeTitlesModal(false)}
                   novelId={novel.id}
                   novelName={novel.name}
+                  sourceId={novel.sourceId}
                   theme={theme}
+                />
+                <LibraryMatchesModal
+                  visible={libraryMatchesModal}
+                  onClose={hideLibraryMatchesModal}
+                  matches={libraryMatches}
+                  theme={theme}
+                  onSelectMatch={match => {
+                    hideLibraryMatchesModal();
+                    navigation.push('ReaderStack', {
+                      screen: 'Novel',
+                      params: {
+                        pluginId: match.pluginId,
+                        path: match.path,
+                        name: match.name,
+                      },
+                    });
+                  }}
                 />
                 <DownloadCustomChapterModal
                   modalVisible={dlChapterModalVisible}

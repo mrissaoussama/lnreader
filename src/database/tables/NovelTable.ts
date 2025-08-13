@@ -19,6 +19,7 @@ export const createNovelTableQuery = `
     hasNote INTEGER DEFAULT 0,
     lastReadAt TEXT,
     lastUpdatedAt TEXT,
+    hasMatch INTEGER DEFAULT 0,
     UNIQUE(path, pluginId)
   );
 `;
