@@ -67,6 +67,20 @@ export interface BrowseSettings {
   globalSearchConcurrency?: number;
   hideInLibraryItems?: boolean;
   enableAdvancedFilters?: boolean;
+  novelMatching?: {
+    enabled?: boolean;
+    showBadges?: boolean;
+    pluginRule?:
+      | 'exact'
+      | 'contains'
+      | 'normalized-exact'
+      | 'normalized-contains';
+    libraryRule?:
+      | 'exact'
+      | 'contains'
+      | 'normalized-exact'
+      | 'normalized-contains';
+  };
 }
 
 export interface LibrarySettings {
@@ -182,6 +196,12 @@ const initialBrowseSettings: BrowseSettings = {
   globalSearchConcurrency: 3,
   hideInLibraryItems: false,
   enableAdvancedFilters: true,
+  novelMatching: {
+    enabled: false,
+    showBadges: true,
+    pluginRule: 'normalized-contains',
+    libraryRule: 'normalized-contains',
+  },
 };
 
 export const initialChapterGeneralSettings: ChapterGeneralSettings = {

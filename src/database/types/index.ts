@@ -13,6 +13,8 @@ export interface NovelInfo {
   inLibrary: boolean;
   isLocal: boolean;
   totalPages: number;
+  alternativeTitles?: string[];
+  hasMatch: boolean;
 }
 
 export interface DBNovelInfo extends NovelInfo {

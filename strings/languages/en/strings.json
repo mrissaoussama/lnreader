@@ -37,6 +37,16 @@
     "clearNotesWarning": "All novel notes will be permanently deleted.",
     "clearNotesMessage": "All notes cleared."
   },
+  "libraryMatching": {
+    "title": "Novel Matching",
+    "matchLibraryAndBrowse": "Match library and browse",
+    "showBadge": "Show badge",
+    "matchingRule": "Matching rule",
+    "libraryMatches": "Library Matches",
+    "noMatchesFound": "No library matches found",
+    "foundInLibrary": "Found in library",
+    "showNovelsWithMatches": "Show novels with matches"
+  },
   "appearance": "Appearance",
   "appearanceScreen": {
     "accentColor": "Accent Color",
@@ -159,7 +169,18 @@
     "multi": "Multi",
     "languages": "Languages",
     "enableAdvancedFilters": "Enable Advanced Filters",
-    "enableAdvancedFiltersDesc": "Allow creating custom filters to hide/show novels across all sources"
+    "enableAdvancedFiltersDesc": "Allow creating custom filters to hide/show novels across all sources",
+    "libraryMatching": "Library Matching",
+    "libraryMatchingDesc": "Show badges on novels that match titles in your library",
+    "matchLibraryTitles": "Match library titles",
+    "matchLibraryTitlesDesc": "Show an indicator on novels that are already in your library",
+    "hideInLibraryItems": "Hide novels in library",
+    "matchingRule": "Matching Rule",
+    "matchingRuleExact": "Exact match",
+    "matchingRuleContains": "Contains match",
+    "matchingRuleNormalized": "Normalized match (ignores punctuation)",
+    "matchingRuleNormalizedExact": "Normalized (exact)",
+    "matchingRuleNormalizedContains": "Normalized (contains)"
   },
   "browseFilters": {
     "filterManager": "Filter Manager",
@@ -377,10 +398,12 @@
         "list": "List",
         "noTitle": "Cover only grid",
         "notesBadges": "Notes badges",
+        "libraryMatchesBadges": "Library matches badges",
         "numberOfItems": "Number of Items",
         "showNoOfItems": "Show number of items",
         "unread": "Unread",
-        "unreadBadges": "Unread badges"
+        "unreadBadges": "Unread badges",
+        "libraryMatches": "Library Matches"
       },
       "filters": {
         "completed": "Completed",
@@ -476,6 +499,10 @@
       "title": "Title: %{title}"
     },
     "inLibaray": "In library",
+    "chaptersDownloaded": "Downloaded chapters",
+    "chaptersUnread": "Unread chapters", 
+    "libraryMatches": "Library Matches",
+    "noLibraryMatches": "No matching novels found in library",
     "jumpToChapterModal": {
       "chapterName": "Chapter Name",
       "chapterNumber": "Chapter Number",

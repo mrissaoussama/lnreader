@@ -70,6 +70,8 @@ const NovelAppbar = ({
   showJumpToChapterModal,
   showNotesModal,
   showAlternativeTitlesModal,
+  showLibraryMatchesModal,
+  libraryMatchesCount,
   hasNote,
   headerOpacity,
 }: {
@@ -87,6 +89,8 @@ const NovelAppbar = ({
   showJumpToChapterModal: (arg: boolean) => void;
   showNotesModal: () => void;
   showAlternativeTitlesModal: () => void;
+  showLibraryMatchesModal: () => void;
+  libraryMatchesCount: number;
   hasNote: boolean;
   headerOpacity: SharedValue<number>;
 }) => {
@@ -189,6 +193,11 @@ const NovelAppbar = ({
             icon={hasNote ? 'note-text' : 'note-text-outline'}
             onPress={showNotesModal}
           />
+          <AppbarAction
+            icon="library-outline"
+            onPress={showLibraryMatchesModal}
+            style={libraryMatchesCount > 0 ? styles.badge : undefined}
+          />
           {!isLocal && (
             <Menu
               theme={theme}
@@ -249,6 +258,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     position: 'absolute',
     right: 0,
+  },
+  badge: {
+    backgroundColor: '#6B7280',
+    borderRadius: 12,
   },
 });
 

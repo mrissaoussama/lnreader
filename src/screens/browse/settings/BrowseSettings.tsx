@@ -1,5 +1,5 @@
 import { FlatList, StyleSheet } from 'react-native';
-import React from 'react';
+import React, { useState } from 'react';
 import { Appbar, List, SwitchItem } from '@components';
 
 import {
@@ -12,6 +12,9 @@ import { getLocaleLanguageName, languages } from '@utils/constants/languages';
 import { BrowseSettingsScreenProp } from '@navigators/types/index';
 import { useBoolean } from '@hooks';
 import ConcurrentSearchesModal from '@screens/browse/settings/modals/ConcurrentSearchesModal';
+import LibraryMatchingRuleModal from '@screens/browse/settings/modals/LibraryMatchingRuleModal';
+import { recalculateAllLibraryMatches } from '@utils/libraryMatching';
+import { showToast } from '@utils/showToast';
 
 const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
   const theme = useTheme();
@@ -24,10 +27,26 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
     hideInLibraryItems,
     enableAdvancedFilters,
     globalSearchConcurrency,
+    novelMatching,
     setBrowseSettings,
   } = useBrowseSettings();
 
+  const [isRecalculating, setIsRecalculating] = useState(false);
+
+  const handleRecalculate = async () => {
+    setIsRecalculating(true);
+    try {
+      await recalculateAllLibraryMatches();
+      showToast('Cache recalculated successfully');
+    } catch (error: any) {
+      showToast(`Error: ${error.message}`);
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
   const globalSearchConcurrencyModal = useBoolean();
+  const libraryMatchingRuleModal = useBoolean();
 
   return (
     <>
@@ -40,6 +59,11 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
         globalSearchConcurrency={globalSearchConcurrency ?? 1}
         modalVisible={globalSearchConcurrencyModal.value}
         hideModal={globalSearchConcurrencyModal.setFalse}
+        theme={theme}
+      />
+      <LibraryMatchingRuleModal
+        visible={libraryMatchingRuleModal.value}
+        onDismiss={libraryMatchingRuleModal.setFalse}
         theme={theme}
       />
       <FlatList
@@ -98,6 +122,40 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
               theme={theme}
               style={styles.item}
             />
+            <List.Divider theme={theme} />
+            <List.SubHeader theme={theme}>
+              {getString('libraryMatching.title')}
+            </List.SubHeader>
+            <SwitchItem
+              label={getString('libraryMatching.matchLibraryAndBrowse')}
+              value={novelMatching.enabled ?? false}
+              onPress={() =>
+                setBrowseSettings({
+                  novelMatching: {
+                    ...novelMatching,
+                    enabled: !novelMatching.enabled,
+                  },
+                })
+              }
+              theme={theme}
+              style={styles.item}
+            />
+            {novelMatching.enabled && (
+              <>
+                <List.Item
+                  title={getString('libraryMatching.matchingRule')}
+                  description={`${novelMatching.pluginRule}, ${novelMatching.libraryRule}`}
+                  onPress={libraryMatchingRuleModal.setTrue}
+                  theme={theme}
+                />
+                <List.Item
+                  title="Recalculate Cache"
+                  onPress={handleRecalculate}
+                  disabled={isRecalculating}
+                  theme={theme}
+                />
+              </>
+            )}
             <List.Divider theme={theme} />
             <List.SubHeader theme={theme}>
               {getString('browseSettingsScreen.languages')}

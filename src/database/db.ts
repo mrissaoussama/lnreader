@@ -73,7 +73,7 @@ export const createTables = () => {
       db.runSync(createNovelTriggerQueryInsert);
       db.runSync(createNovelTriggerQueryUpdate);
       db.runSync(createNovelTriggerQueryDelete);
-      db.execSync('PRAGMA user_version = 5');
+      db.execSync('PRAGMA user_version = 6');
     });
   } else {
     if (userVersion < 1) {
@@ -90,6 +90,9 @@ export const createTables = () => {
     }
     if (userVersion < 5) {
       updateToDBVersion5();
+    }
+    if (userVersion < 6) {
+      updateToDBVersion6();
     }
   }
 };
@@ -209,6 +212,13 @@ const updateToDBVersion5 = () => {
     db.runSync(createAlternativeTitleTableQuery);
     db.runSync(createAlternativeTitleIndexQuery);
 
+    db.execSync('PRAGMA user_version = 5');
+  });
+};
+
+const updateToDBVersion6 = () => {
+  db.withTransactionSync(() => {
+    db.runSync('ALTER TABLE Novel ADD COLUMN hasMatch INTEGER DEFAULT 0');
     db.execSync('PRAGMA user_version = 6');
   });
 };

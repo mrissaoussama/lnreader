@@ -5,6 +5,8 @@ export interface NovelItem {
   name: string;
   path: string;
   cover?: string;
+  author?: string;
+  altNames?: string[];
 }
 
 export interface ChapterItem {
