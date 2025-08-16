@@ -1,5 +1,6 @@
 import { getPlugin } from '@plugins/pluginManager';
 import { isUrlAbsolute } from '@plugins/helpers/isAbsoluteUrl';
+import { mergeUrlAndPath } from '@utils/urlUtils';
 
 export const fetchNovel = async (pluginId: string, novelPath: string) => {
   const plugin = getPlugin(pluginId);
@@ -60,5 +61,5 @@ export const resolveUrl = (
   } catch {
     return path;
   }
-  return plugin.site + path;
+  return mergeUrlAndPath(plugin.site, path);
 };
