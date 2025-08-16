@@ -23,3 +23,15 @@ export const updateUserListEntry = async (source, id, payload, auth) => {
   const result = await trackers[source].updateUserListEntry(id, payload, auth);
   return result;
 };
+
+export const getTrackerEntryUrl = (
+  source: string,
+  track: { sourceId: string | number; metadata?: string },
+  novel?: { path?: string; pluginId?: string; [k: string]: any },
+): string | null => {
+  const impl = trackers[source];
+  if (impl && typeof impl.getEntryUrl === 'function') {
+    return impl.getEntryUrl(track, novel);
+  }
+  return null;
+};

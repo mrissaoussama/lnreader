@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Dialog,
   Portal,
@@ -13,25 +13,42 @@ import { getString } from '@strings/translations';
 interface SetTrackChaptersDialogProps {
   track: Track;
   visible: boolean;
-  onDismiss: () => void;
+  hideDialog: () => void;
   onSubmit: (track: Track, newChapter: number, forceUpdate: boolean) => void;
   theme: ThemeColors;
+  trackerName?: string;
+  // New: optional reading list/status selector support
+  allowListChange?: boolean;
+  availableLists?: Array<{ id: string; name: string }>;
+  selectedListId?: string | null;
+  onChangeList?: (listId: string) => void;
 }
 
 const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
   track,
   visible,
-  onDismiss,
+  hideDialog,
   onSubmit,
   theme,
+  trackerName,
+  allowListChange,
+  availableLists,
+  selectedListId,
+  onChangeList,
 }) => {
   const [chapters, setChapters] = useState('0');
   const [forceUpdate, setForceUpdate] = useState(true);
+  const [showListPicker, setShowListPicker] = useState(false);
+
+  const selectedListName = useMemo(() => {
+    if (!availableLists || !selectedListId) return undefined;
+    return availableLists.find(l => l.id === selectedListId)?.name;
+  }, [availableLists, selectedListId]);
 
   const handleDismiss = () => {
     setChapters('0');
     setForceUpdate(true);
-    onDismiss();
+    hideDialog();
   };
 
   const handleSubmit = () => {
@@ -73,14 +90,29 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
         style={[styles.dialog, { backgroundColor: theme.surface }]}
       >
         <Dialog.Title style={{ color: theme.onSurface }}>
-          Update Progress - {trackTitle}
+          {`Update ${trackerName + ': ' + trackTitle}`}
         </Dialog.Title>
         <Dialog.Content>
           <Text style={{ color: theme.onSurface }}>
-            Current Progress: {currentProgress}
+            {`Current: ${currentProgress}`}
           </Text>
+          {allowListChange &&
+          Array.isArray(availableLists) &&
+          availableLists.length > 0 ? (
+            <>
+              <Text style={[styles.sectionLabel, { color: theme.onSurface }]}>
+                List/Status
+              </Text>
+              <Text
+                onPress={() => setShowListPicker(true)}
+                style={[styles.listPickerLink, { color: theme.primary }]}
+              >
+                {selectedListName || 'Select...'}
+              </Text>
+            </>
+          ) : null}
           <TextInput
-            label={'Chapters Read'}
+            label="Chapters"
             value={chapters}
             onChangeText={setChapters}
             keyboardType="numeric"
@@ -98,16 +130,71 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
           </PaperButton>
         </Dialog.Actions>
       </Dialog>
+
+      {/* Reading list picker inside dialog */}
+      {allowListChange && showListPicker ? (
+        <Dialog
+          visible={showListPicker}
+          onDismiss={() => setShowListPicker(false)}
+          style={[styles.dialog, { backgroundColor: theme.surface }]}
+        >
+          <Dialog.Title style={{ color: theme.onSurface }}>
+            Select List/Status
+          </Dialog.Title>
+          <Dialog.Content>
+            {availableLists?.map(list => (
+              <Text
+                key={list.id}
+                onPress={() => {
+                  onChangeList?.(list.id);
+                  setShowListPicker(false);
+                }}
+                style={[
+                  styles.listItem,
+                  {
+                    color:
+                      selectedListId === list.id
+                        ? theme.primary
+                        : theme.onSurface,
+                  },
+                ]}
+              >
+                {list.name}
+              </Text>
+            ))}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <PaperButton
+              onPress={() => setShowListPicker(false)}
+              textColor={theme.onSurface}
+            >
+              {getString('common.cancel')}
+            </PaperButton>
+          </Dialog.Actions>
+        </Dialog>
+      ) : null}
     </Portal>
   );
 };
 
 const styles = StyleSheet.create({
   dialog: {
-    zIndex: 2000, // Increased from 1000 to appear above bottom sheet
+    zIndex: 6000,
   },
   textInput: {
     marginTop: 16,
+  },
+  sectionLabel: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  listPickerLink: {
+    marginTop: 4,
+    textDecorationLine: 'underline',
+  },
+  listItem: {
+    paddingVertical: 8,
   },
 });
 
