@@ -75,11 +75,6 @@ export class ProgressSyncService {
                 chapterNumber === track.totalChapters && {
                   status: 'COMPLETED',
                 }),
-              metadata: track.metadata,
-              ...(novel && {
-                novelPluginId: novel.pluginId,
-                novelPath: novel.path,
-              }),
               ...(chapterName &&
                 chapterPath && {
                   chapterName,

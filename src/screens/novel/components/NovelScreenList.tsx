@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TrackSheet from './Tracker/TrackSheet';
+import TrackModal from './Tracker/TrackModal';
 import NovelBottomSheet from './NovelBottomSheet';
 import * as Haptics from 'expo-haptics';
 import { AnimatedFAB } from 'react-native-paper';
@@ -380,7 +380,7 @@ const NovelScreenList = ({
             filter={filter}
             showChapterTitles={showChapterTitles}
           />
-          <TrackSheet
+          <TrackModal
             bottomSheetRef={trackerSheetRef}
             novel={novel}
             theme={theme}

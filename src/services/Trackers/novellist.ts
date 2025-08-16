@@ -5,6 +5,21 @@ import CookieManager from '@react-native-cookies/cookies';
 const NOVELLIST_BASE_URL =
   'https://novellist-be-960019704910.asia-east1.run.app';
 
+const mapStatusFromNovellist = (status: string): UserListStatus => {
+  switch (status) {
+    case 'IN_PROGRESS':
+      return 'CURRENT';
+    case 'COMPLETED':
+      return 'COMPLETED';
+    case 'PLANNED':
+      return 'PLANNING';
+    case 'DROPPED':
+      return 'DROPPED';
+    default:
+      return 'CURRENT';
+  }
+};
+
 // Function to extract access token from novellist cookie
 const extractTokenFromCookie = async (): Promise<string | null> => {
   try {
@@ -76,6 +91,23 @@ const authenticate: Tracker['authenticate'] = async () => {
   };
 };
 
+const getNovellistListMeta = (normalizedStatus: UserListStatus) => {
+  switch (normalizedStatus) {
+    case 'CURRENT':
+      return { id: 'IN_PROGRESS', name: 'Reading' };
+    case 'PLANNING':
+      return { id: 'PLANNED', name: 'Want to Read' };
+    case 'COMPLETED':
+      return { id: 'COMPLETED', name: 'Completed' };
+    case 'DROPPED':
+      return { id: 'DROPPED', name: 'Dropped' };
+    case 'PAUSED':
+      return { id: 'PLANNED', name: 'Want to Read' };
+    default:
+      return { id: 'IN_PROGRESS', name: 'Reading' };
+  }
+};
+
 const getAuthHeaders = (authentication: any): Record<string, string> => {
   const baseHeaders = {
     'Content-Type': 'application/json',
@@ -140,7 +172,8 @@ const handleSearch: Tracker['handleSearch'] = async (
     let results: SearchResult[] = [];
     if (Array.isArray(responseData)) {
       results = responseData.map((item: any) => ({
-        id: item.id || item.slug,
+        id: item.id,
+        slug: item.slug,
         title: item.english_title || item.raw_title || item.title,
         coverImage: item.cover_image_link || item.image_url,
         description: item.description,
@@ -207,21 +240,6 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
 
     const data = await response.json();
 
-    const mapStatusFromNovellist = (status: string): UserListStatus => {
-      switch (status) {
-        case 'IN_PROGRESS':
-          return 'CURRENT';
-        case 'COMPLETED':
-          return 'COMPLETED';
-        case 'PLANNED':
-          return 'PLANNING';
-        case 'DROPPED':
-          return 'DROPPED';
-        default:
-          return 'CURRENT';
-      }
-    };
-
     // Try to fetch novel metadata for alternative titles
     let novelMetadata = null;
     try {
@@ -263,11 +281,16 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       // If novel metadata fetch fails, continue without alternative titles
     }
 
+    const normalized = mapStatusFromNovellist(data.status);
+    const listMeta = getNovellistListMeta(normalized);
+
     const result: any = {
-      status: mapStatusFromNovellist(data.status),
+      status: normalized,
       progress: data.chapter_count || 0,
       score: data.rating || undefined,
       notes: data.note || undefined,
+      listId: listMeta.id,
+      listName: listMeta.name,
     };
 
     // Add alternative titles if novel metadata is available
@@ -329,22 +352,6 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       'Not logged in to Novellist. Please login through your browser and ensure the authentication token is properly set.',
     );
   }
-
-  // Map Novellist status to internal status (local function)
-  const mapStatusFromNovellist = (status: string): UserListStatus => {
-    switch (status) {
-      case 'IN_PROGRESS':
-        return 'CURRENT';
-      case 'COMPLETED':
-        return 'COMPLETED';
-      case 'PLANNED':
-        return 'PLANNING';
-      case 'DROPPED':
-        return 'DROPPED';
-      default:
-        return 'CURRENT';
-    }
-  };
 
   try {
     // First, get current entry to preserve existing data
@@ -501,11 +508,32 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       // If novel metadata fetch fails, continue without alternative titles
     }
 
+    let normalizedStatus: UserListStatus = 'CURRENT';
+    if (
+      cleanedRequestBody.status &&
+      typeof cleanedRequestBody.status === 'string'
+    ) {
+      normalizedStatus = mapStatusFromNovellist(
+        cleanedRequestBody.status as string,
+      );
+    } else if (existingData?.status) {
+      normalizedStatus = mapStatusFromNovellist(existingData.status);
+    } else if (payload.status) {
+      normalizedStatus = payload.status;
+    }
+
+    const listMeta = getNovellistListMeta(normalizedStatus);
+
     const result: any = {
-      status: payload.status || 'CURRENT',
-      progress: payload.progress || 0,
-      score: payload.score,
-      notes: payload.notes,
+      status: normalizedStatus,
+      progress:
+        payload.progress !== undefined
+          ? payload.progress
+          : existingData?.chapter_count || 0,
+      score: payload.score ?? existingData?.rating,
+      notes: payload.notes ?? existingData?.note,
+      listId: listMeta.id,
+      listName: listMeta.name,
     };
 
     // Add alternative titles if novel metadata is available
@@ -793,4 +821,14 @@ export const novellist: Tracker = {
   getAvailableReadingLists,
   addToReadingList,
   getAllTrackedNovels,
+  getEntryUrl: (track: any) => {
+    try {
+      const md = track?.metadata ? JSON.parse(track.metadata) : {};
+      const slug = md?.slug ?? md?.novelSlug;
+      if (slug) return `https://www.novellist.co/novels/${slug}`;
+      const id = track?.sourceId ? String(track.sourceId) : undefined;
+      if (id) return `https://www.novellist.co/novels/${id}`;
+    } catch {}
+    return null;
+  },
 };

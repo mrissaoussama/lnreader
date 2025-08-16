@@ -43,6 +43,22 @@ const mapStatusFromMAL = status => {
       return 'CURRENT';
   }
 };
+const getMALListMeta = (normalizedStatus: string) => {
+  switch (normalizedStatus) {
+    case 'CURRENT':
+      return { id: 'reading', name: 'Reading' };
+    case 'PLANNING':
+      return { id: 'plan_to_read', name: 'Plan to Read' };
+    case 'COMPLETED':
+      return { id: 'completed', name: 'Completed' };
+    case 'PAUSED':
+      return { id: 'on_hold', name: 'On Hold' };
+    case 'DROPPED':
+      return { id: 'dropped', name: 'Dropped' };
+    default:
+      return { id: 'reading', name: 'Reading' };
+  }
+};
 const getHeaders = auth => ({
   'Content-Type': 'application/json',
   Accept: 'application/json',
@@ -56,7 +72,7 @@ const handleSearch = async (query, authentication, _options) => {
 
   const searchUrl = `${MAL_API_URL}/manga?q=${encodeURIComponent(
     query,
-  )}&limit=50&fields=id,title,alternative_titles,main_picture,num_chapters,synopsis,status,start_date,genres,authors,media_type`;
+  )}&limit=50&nsfw=true&fields=id,title,alternative_titles,main_picture,num_chapters,synopsis,status,start_date,genres,authors,media_type`;
   const headers = getHeaders(authentication.accessToken);
 
   const response = await fetch(searchUrl, {
@@ -70,7 +86,10 @@ const handleSearch = async (query, authentication, _options) => {
   const json = await response.json();
   const filteredData = json.data.filter(item => {
     const mediaType = item.node.media_type;
-    return mediaType === 'novel' || mediaType === 'light_novel';
+    return (
+      mediaType.toLowerCase() === 'novel' ||
+      mediaType.toLowerCase() === 'light_novel'
+    );
   });
   const seenIds = new Set();
   const uniqueData = filteredData.filter(item => {
@@ -149,13 +168,18 @@ const updateUserListEntry = async (id, payload, authentication) => {
 
   const json = await response.json();
 
+  const normalizedStatus = mapStatusFromMAL(json.status);
+  const listMeta = getMALListMeta(normalizedStatus);
+
   return {
-    status: mapStatusFromMAL(json.status),
+    status: normalizedStatus,
     progress: json.num_chapters_read || 0,
     score: json.score,
     notes: json.comments,
     startDate: json.start_date,
     finishDate: json.finish_date,
+    listId: listMeta.id,
+    listName: listMeta.name,
   };
 };
 const getUserListEntry = async (id, authentication) => {
@@ -173,22 +197,28 @@ const getUserListEntry = async (id, authentication) => {
   }
 
   const json = await response.json();
-
   if (!json.my_list_status) {
     return {
       status: 'CURRENT',
       progress: 0,
+      listId: 'reading',
+      listName: 'Reading',
     };
   }
   const entry = json.my_list_status;
 
+  const normalizedStatus = mapStatusFromMAL(entry.status);
+  const listMeta = getMALListMeta(normalizedStatus);
+
   const result = {
-    status: mapStatusFromMAL(entry.status),
+    status: normalizedStatus,
     progress: entry.num_chapters_read || 0,
     score: entry.score,
     notes: entry.comments,
     startDate: entry.start_date,
     finishDate: entry.finish_date,
+    listId: listMeta.id,
+    listName: listMeta.name,
   };
 
   return result;
@@ -404,4 +434,8 @@ export const myAnimeList = {
   getAvailableReadingLists,
   addToReadingList,
   getAllTrackedNovels,
+  getEntryUrl: (track: any) => {
+    const id = String(track?.sourceId);
+    return id ? `https://myanimelist.net/manga/${id}` : null;
+  },
 };

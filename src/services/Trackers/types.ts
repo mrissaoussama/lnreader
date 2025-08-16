@@ -80,6 +80,10 @@ export type UserListEntry = {
   status: UserListStatus;
   /** The user's current chapter progress */
   progress: number;
+  /** Optional reading list identifier when tracker provides it */
+  listId?: string;
+  /** Optional human-friendly reading list name when tracker provides it */
+  listName?: string;
   /** The user's current score */
   score?: number;
   /** Start date */
@@ -92,14 +96,6 @@ export type UserListEntry = {
   alternativeTitles?: string[];
   /** Tracker-specific metadata stored as JSON string */
   metadata?: string;
-  /** Novel plugin ID for tracking notes (used internally) */
-  novelPluginId?: string;
-  /** Novel path for tracking notes (used internally) */
-  novelPath?: string;
-  /** Chapter name for tracking notes (used internally) */
-  chapterName?: string;
-  /** Chapter path for tracking notes (used internally) */
-  chapterPath?: string;
   /** Custom progress display string for special trackers like Novel Updates */
   progressDisplay?: string;
 };
@@ -206,4 +202,13 @@ export type Tracker<AuthMeta = any> = {
     payload: Partial<UserListEntry>,
     authentication: AuthenticationResult<AuthMeta>,
   ) => Promise<UserListEntry>;
+
+  /**
+   * Builds a URL to view this entry on the tracker's website.
+   * Implementations should prefer explicit identifiers (sourceId or metadata fields) and avoid using novel.novelPath for external trackers.
+   */
+  getEntryUrl?: (
+    track: { sourceId: string | number; metadata?: string },
+    novel?: { path?: string; pluginId?: string; [k: string]: any },
+  ) => string | null;
 };
