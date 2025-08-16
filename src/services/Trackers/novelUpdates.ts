@@ -288,6 +288,13 @@ export const markChaptersUpToProgress = async (
   auth: any,
 ): Promise<void> => {
   try {
+    const markChaptersEnabled =
+      MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
+
+    if (!markChaptersEnabled) {
+      return;
+    }
+
     const chapters = await getChaptersForMarking(novelUpdatesId, auth);
 
     if (chapters.length === 0) {
@@ -724,24 +731,42 @@ const getDetailedProgress = async (
   lastMarkedChapterIndex?: number;
   progressDisplay?: string;
 }> => {
-  const [notesProgress, markedData] = await Promise.all([
-    getNotesProgress(novelId),
-    getMarkedChapterProgress(novelId),
-  ]);
+  const markChaptersEnabled =
+    MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
+
+  let notesProgress: number;
+  let markedData: {
+    progress: number;
+    lastMarkedChapterId?: string;
+    lastMarkedChapterText?: string;
+    lastMarkedChapterIndex?: number;
+  };
+
+  if (markChaptersEnabled) {
+    [notesProgress, markedData] = await Promise.all([
+      getNotesProgress(novelId),
+      getMarkedChapterProgress(novelId),
+    ]);
+  } else {
+    notesProgress = await getNotesProgress(novelId);
+    markedData = { progress: 0 };
+  }
 
   const finalProgress = Math.max(notesProgress, markedData.progress);
 
   let progressDisplay = `notes:${notesProgress}`;
 
-  if (
-    markedData.lastMarkedChapterText &&
-    markedData.lastMarkedChapterIndex !== undefined
-  ) {
-    progressDisplay += `, marked:${markedData.lastMarkedChapterText} (index:${markedData.lastMarkedChapterIndex})`;
-  } else if (markedData.progress > 0) {
-    progressDisplay += `, marked:${markedData.progress}`;
-  } else {
-    progressDisplay += ', marked:0';
+  if (markChaptersEnabled) {
+    if (
+      markedData.lastMarkedChapterText &&
+      markedData.lastMarkedChapterIndex !== undefined
+    ) {
+      progressDisplay += `, marked:${markedData.lastMarkedChapterText} (index:${markedData.lastMarkedChapterIndex})`;
+    } else if (markedData.progress > 0) {
+      progressDisplay += `, marked:${markedData.progress}`;
+    } else {
+      progressDisplay += ', marked:0';
+    }
   }
 
   return {
@@ -761,6 +786,13 @@ const markChapterRead = async (
   isRead: boolean = true,
 ): Promise<void> => {
   try {
+    const markChaptersEnabled =
+      MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
+
+    if (!markChaptersEnabled) {
+      return;
+    }
+
     await fetchApi(`${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -951,6 +983,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
     };
   }
   let alternativeTitles: string[] = [];
+  let novelId: string = '';
   const slug = id;
   const url = `${NOVEL_UPDATES_BASE_URL}/series/${slug}`;
 
@@ -1248,6 +1281,19 @@ export const novelUpdates: Tracker = {
   updateUserListEntry,
   getAvailableReadingLists: getAvailableReadingListsForNovel,
   addToReadingList: addToReadingListForNovel,
+  getEntryUrl: (track: any) => {
+    try {
+      const md = track?.metadata ? JSON.parse(track.metadata) : {};
+      const sourceId = track?.sourceId ? String(track.sourceId) : undefined;
+      const slug = /^\d+$/.test(sourceId || '')
+        ? (md?.slug as string | undefined)
+        : sourceId;
+      if (slug) return `https://www.novelupdates.com/series/${slug}/`;
+      const novelId = md?.novelId ? String(md.novelId) : undefined;
+      if (novelId) return `https://www.novelupdates.com/?p=${novelId}`;
+    } catch {}
+    return null;
+  },
 };
 
 export { getDetailedProgress, markChapterRead };

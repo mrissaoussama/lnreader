@@ -12,13 +12,14 @@ import { useTheme, useTracker } from '@hooks/persisted';
 import { ThemeColors } from '@theme/types';
 import { Track } from '@database/types/Track';
 import { trackers } from '@services/Trackers';
+import { updateTrack } from '@database/queries/TrackQueries';
 
 interface TrackerProgressData {
   source: string;
   progress: number;
   isLoading: boolean;
   error?: string;
-  progressDisplay?: string; // Custom display string from tracker
+  progressDisplay?: string;
 }
 
 interface UpdateAllTrackersDialogProps {
@@ -44,13 +45,11 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
   const [customProgress, setCustomProgress] = useState('');
   const [_isUpdating, setIsUpdating] = useState(false);
 
-  // Calculate the highest progress automatically
   const highestProgress = Math.max(
     appProgress,
     ...trackersData.map(t => t.progress),
   );
 
-  // Use custom progress if provided, otherwise use highest
   const targetProgress = customProgress
     ? parseInt(customProgress, 10) || highestProgress
     : highestProgress;
@@ -63,66 +62,137 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
     }));
     setTrackersData(initialData);
 
-    // Fetch fresh progress in parallel
-    const updatedData = await Promise.all(
-      tracks.map(async (track): Promise<TrackerProgressData> => {
-        try {
-          const tracker = trackers[track.source];
-          if (!tracker) {
-            return {
-              source: track.source,
-              progress: track.lastChapterRead,
-              isLoading: false,
-              error: 'Error loading tracker',
-            };
-          }
-
-          // Get authentication for this tracker
-          const auth = getTrackerAuth(track.source);
-          if (!auth || !auth.accessToken || !auth.expiresAt) {
-            return {
-              source: track.source,
-              progress: track.lastChapterRead,
-              isLoading: false,
-              error: 'Not logged in',
-            };
-          }
-
-          const userEntry = await tracker.getUserListEntry(
-            track.sourceId,
-            auth as any, // Cast to any since the auth system returns a generic object
+    const trackerPromises = tracks.map(async (track, index): Promise<void> => {
+      try {
+        const tracker = trackers[track.source];
+        if (!tracker) {
+          setTrackersData(prev =>
+            prev.map((item, i) =>
+              i === index
+                ? {
+                    ...item,
+                    isLoading: false,
+                    error: 'Error loading tracker',
+                  }
+                : item,
+            ),
           );
+          return;
+        }
 
-          // Add safety check for userEntry
-          if (!userEntry || typeof userEntry !== 'object') {
-            return {
-              source: track.source,
-              progress: track.lastChapterRead || 0,
-              isLoading: false,
-              error: 'Failed to get tracker progress',
-            };
+        const auth = getTrackerAuth(track.source);
+
+        if (!auth || !auth.accessToken || !auth.expiresAt) {
+          setTrackersData(prev =>
+            prev.map((item, i) =>
+              i === index
+                ? {
+                    ...item,
+                    isLoading: false,
+                    error: 'Not logged in',
+                  }
+                : item,
+            ),
+          );
+          return;
+        }
+
+        const userEntry = await tracker.getUserListEntry(
+          track.sourceId,
+          auth as any,
+        );
+
+        if (!userEntry || typeof userEntry !== 'object') {
+          setTrackersData(prev =>
+            prev.map((item, i) =>
+              i === index
+                ? {
+                    ...item,
+                    isLoading: false,
+                    error: 'Failed to get tracker progress',
+                  }
+                : item,
+            ),
+          );
+          return;
+        }
+
+        const progress = userEntry.progress || 0;
+
+        try {
+          const directId = (userEntry as any).listId as string | undefined;
+          const directName = (userEntry as any).listName as string | undefined;
+          let resolved: { id: string; name: string } | undefined;
+
+          if (directId || directName) {
+            resolved = { id: directId!, name: directName || directId! };
+          } else {
+            const status: string | undefined = (userEntry as any).status;
+            if (
+              status &&
+              typeof tracker.getAvailableReadingLists === 'function'
+            ) {
+              try {
+                const lists = await tracker.getAvailableReadingLists(
+                  'dummy',
+                  auth as any,
+                );
+                const found = Array.isArray(lists)
+                  ? lists.find(l => l && l.id === status)
+                  : undefined;
+                if (found) resolved = { id: found.id, name: found.name };
+              } catch {}
+            }
           }
 
-          const progress = userEntry.progress || 0;
+          if (resolved) {
+            let md: any = {};
+            try {
+              if (track.metadata) md = JSON.parse(track.metadata);
+            } catch {}
+            const prevId =
+              typeof md.listId === 'string' ? md.listId : undefined;
+            const prevName =
+              typeof md.listName === 'string' ? md.listName : undefined;
+            if (prevId !== resolved.id || prevName !== resolved.name) {
+              const nextMetadata = JSON.stringify({
+                ...md,
+                listId: resolved.id,
+                listName: resolved.name,
+              });
+              await updateTrack(track.id, { metadata: nextMetadata });
+            }
+          }
+        } catch {}
 
-          return {
-            source: track.source,
-            progress,
-            progressDisplay: (userEntry as any).progressDisplay,
-            isLoading: false,
-          };
-        } catch (error: any) {
-          return {
-            source: track.source,
-            progress: track.lastChapterRead,
-            isLoading: false,
-            error: error.message || 'Failed to fetch progress',
-          };
-        }
-      }),
-    );
+        setTrackersData(prev =>
+          prev.map((item, i) =>
+            i === index
+              ? {
+                  ...item,
+                  progress,
+                  progressDisplay: (userEntry as any).progressDisplay,
+                  isLoading: false,
+                }
+              : item,
+          ),
+        );
+      } catch (error: any) {
+        setTrackersData(prev =>
+          prev.map((item, i) =>
+            i === index
+              ? {
+                  ...item,
+                  isLoading: false,
+                  error: error.message || 'Failed to fetch progress',
+                }
+              : item,
+          ),
+        );
+      }
+    });
 
-    setTrackersData(updatedData);
+    await Promise.allSettled(trackerPromises);
   }, [tracks, getTrackerAuth]);
 
   useEffect(() => {
@@ -141,7 +211,6 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
       onConfirm(targetProgress).catch(_error => {});
       onDismiss();
     } catch (error) {
-      // Error will be handled by parent component
     } finally {
       setIsUpdating(false);
     }
@@ -227,7 +296,7 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
 const createStyles = (theme: ThemeColors) =>
   StyleSheet.create({
     modalWrapper: {
-      zIndex: 2000, // Increased from 1000 to appear above bottom sheet
+      zIndex: 6000,
     },
     modal: {
       backgroundColor: theme.background,
@@ -235,7 +304,7 @@ const createStyles = (theme: ThemeColors) =>
       padding: 20,
       borderRadius: 8,
       maxHeight: '80%',
-      zIndex: 2001, // Increased from 1001 to appear above bottom sheet
+      zIndex: 6001,
     },
     title: {
       fontSize: 20,
