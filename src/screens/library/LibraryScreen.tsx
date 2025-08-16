@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { useFocusEffect } from '@react-navigation/native';
 import { SceneRendererProps, TabBar, TabView } from 'react-native-tab-view';
 import Color from 'color';
 
@@ -16,7 +17,12 @@ import LibraryBottomSheet from './components/LibraryBottomSheet/LibraryBottomShe
 import { Banner } from './components/Banner';
 import { Actionbar } from '@components/Actionbar/Actionbar';
 
-import { useAppSettings, useHistory, useTheme } from '@hooks/persisted';
+import {
+  useAppSettings,
+  useHistory,
+  useTheme,
+  useLibrarySettings,
+} from '@hooks/persisted';
 import { useSearch, useBackHandler, useBoolean } from '@hooks';
 import { getString } from '@strings/translations';
 import { FAB, Portal } from 'react-native-paper';
@@ -25,6 +31,7 @@ import {
   markAllChaptersUnread,
 } from '@database/queries/ChapterQueries';
 import { removeNovelsFromLibrary } from '@database/queries/NovelQueries';
+import { getCategoryNovelCounts } from '@database/queries/LibraryQueries';
 import SetCategoryModal from '@screens/novel/components/SetCategoriesModal';
 import MassImportModal from './components/MassImportModal/MassImportModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,6 +60,8 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     isLoading,
     settings: { showNumberOfNovels, downloadedOnlyMode, incognitoMode },
   } = useLibraryContext();
+
+  const { filter } = useLibrarySettings();
 
   const { importNovel } = useImport();
   const { useLibraryFAB = false } = useAppSettings();
@@ -84,6 +93,9 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
   };
 
   const [selectedNovelIds, setSelectedNovelIds] = useState<number[]>([]);
+  const [categoryCounts, setCategoryCounts] = useState<Record<number, number>>(
+    {},
+  );
 
   const currentNovels = useMemo(() => {
     if (!categories.length) return [];
@@ -100,6 +112,35 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
     return false;
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchLibrary();
+    }, [refetchLibrary]),
+  );
+
+  useEffect(() => {
+    const updateCategoryCounts = async () => {
+      if (!categories.length) return;
+
+      const categoryNovelIds = categories.map(category => category.novelIds);
+      const counts = getCategoryNovelCounts(
+        categoryNovelIds,
+        filter,
+        searchText,
+        downloadedOnlyMode,
+      );
+
+      const countsMap: Record<number, number> = {};
+      categories.forEach((category, idx) => {
+        countsMap[category.id] = counts[idx];
+      });
+
+      setCategoryCounts(countsMap);
+    };
+
+    updateCategoryCounts();
+  }, [categories, searchText, downloadedOnlyMode, filter]);
 
   useEffect(() => {
     const getSummaryText = (results: ImportResult) => {
@@ -369,14 +410,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         title: string;
       };
     }) => {
-      const ids = route.novelIds;
-      const unfilteredNovels = library.filter(l => ids.includes(l.id));
-
-      const novels = unfilteredNovels.filter(
-        n =>
-          n.name.toLowerCase().includes(searchText.toLowerCase()) ||
-          (n.author?.toLowerCase().includes(searchText.toLowerCase()) ?? false),
-      );
+      const isFocused = categories[index]?.id === route.id;
 
       return isLoading ? (
         <SourceScreenSkeletonLoading theme={theme} />
@@ -398,18 +432,21 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           <LibraryView
             categoryId={route.id}
             categoryName={route.name}
-            novels={novels}
+            categoryNovelIds={route.novelIds}
+            searchText={searchText}
             selectedNovelIds={selectedNovelIds}
             setSelectedNovelIds={setSelectedNovelIds}
             pickAndImport={pickAndImport}
             navigation={navigation}
+            isFocused={isFocused}
           />
         </>
       );
     },
     [
+      categories,
+      index,
       isLoading,
-      library,
       navigation,
       pickAndImport,
       searchText,
@@ -421,6 +458,8 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
   const renderLabel = useCallback(
     ({ route, color }: TabViewLabelProps) => {
+      const count = categoryCounts[route.id] ?? route?.novelIds.length ?? 0;
+
       return (
         <Row>
           <Text style={[{ color }, styles.fontWeight600]}>{route.title}</Text>
@@ -434,7 +473,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
               <Text
                 style={[styles.badgetText, { color: theme.onSurfaceVariant }]}
               >
-                {route?.novelIds.length}
+                {count}
               </Text>
             </View>
           ) : null}
@@ -442,6 +481,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       );
     },
     [
+      categoryCounts,
       showNumberOfNovels,
       styles.badgeCtn,
       styles.badgetText,

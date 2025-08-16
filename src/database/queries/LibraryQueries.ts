@@ -1,5 +1,5 @@
 import { LibraryFilter } from '@screens/library/constants/constants';
-import { LibraryNovelInfo, NovelInfo, DBNovelInfo } from '../types';
+import { LibraryNovelInfo, NovelInfo } from '../types';
 import {
   getAllAsync,
   getAllSync,
@@ -11,7 +11,10 @@ import { MatchingRule } from '@utils/libraryMatching';
 
 // Normalize title for database comparison
 const normalizeForDb = (title: string): string => {
-  return title.toLowerCase().replace(/[\s-]/g, '').trim();
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .trim();
 };
 
 /**
@@ -378,11 +381,11 @@ export const getLibraryNovelsFromDb = (
 
   if (sortOrder) {
     if (searchText) {
-      query += ` ORDER BY 
-                   CASE 
+      query += ` ORDER BY
+                   CASE
                      WHEN n.name LIKE ? THEN 1
                      WHEN alt.title LIKE ? THEN 2
-                     WHEN n.author LIKE ? THEN 3  
+                     WHEN n.author LIKE ? THEN 3
                      WHEN n.genres LIKE ? THEN 4
                      WHEN n.summary LIKE ? THEN 5
                      WHEN nt.content LIKE ? THEN 6
@@ -403,11 +406,11 @@ export const getLibraryNovelsFromDb = (
       query += ` ORDER BY ${sortOrder} `;
     }
   } else if (searchText) {
-    query += ` ORDER BY 
-                 CASE 
+    query += ` ORDER BY
+                 CASE
                    WHEN n.name LIKE ? THEN 1
                    WHEN alt.title LIKE ? THEN 2
-                   WHEN n.author LIKE ? THEN 3  
+                   WHEN n.author LIKE ? THEN 3
                    WHEN n.genres LIKE ? THEN 4
                    WHEN n.summary LIKE ? THEN 5
                    WHEN nt.content LIKE ? THEN 6
@@ -496,11 +499,11 @@ export const getCategoryNovelCounts = (
     const params: (string | number)[] = [...novelIds];
     if (searchText?.trim()) {
       query += ` AND (
-        n.name LIKE ? OR 
+        n.name LIKE ? OR
         alt.title LIKE ? OR
-        n.author LIKE ? OR 
-        n.genres LIKE ? OR 
-        n.summary LIKE ? OR 
+        n.author LIKE ? OR
+        n.genres LIKE ? OR
+        n.summary LIKE ? OR
         nt.content LIKE ? OR
         n.pluginId LIKE ?
       )`;

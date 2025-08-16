@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import { xor } from 'lodash-es';
 
@@ -7,67 +7,162 @@ import NovelCover from '@components/NovelCover';
 import NovelList, { NovelListRenderItem } from '@components/NovelList';
 
 import { NovelInfo } from '@database/types';
+import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
 
 import { getString } from '@strings/translations';
-import { useTheme } from '@hooks/persisted';
+import { useTheme, useLibrarySettings } from '@hooks/persisted';
 import { LibraryScreenProps } from '@navigators/types';
 import ServiceManager from '@services/ServiceManager';
 import { useLibraryMatching } from '@hooks/useLibraryMatching';
 
+const PAGE_SIZE = 50;
+
 interface Props {
   categoryId: number;
   categoryName: string;
-  novels: NovelInfo[];
+  categoryNovelIds: number[];
+  searchText?: string;
   selectedNovelIds: number[];
   setSelectedNovelIds: React.Dispatch<React.SetStateAction<number[]>>;
   navigation: LibraryScreenProps['navigation'];
   pickAndImport: () => void;
+  isFocused?: boolean;
 }
 
 export const LibraryView: React.FC<Props> = ({
   categoryId,
   categoryName,
+  categoryNovelIds,
+  searchText = '',
   selectedNovelIds,
   setSelectedNovelIds,
   pickAndImport,
   navigation,
-  novels,
+  isFocused = true,
 }) => {
   const theme = useTheme();
+  const {
+    filter,
+    sortOrder,
+    downloadedOnlyMode = false,
+  } = useLibrarySettings();
+
+  const [novels, setNovels] = useState<NovelInfo[]>([]);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadNovels = useCallback(
+    (reset: boolean = false, currentNovels: NovelInfo[] = []) => {
+      if (!isFocused) return;
+
+      const offset = reset ? 0 : currentNovels.length;
+
+      if (searchText.trim()) {
+        const searchResults = getLibraryNovelsFromDb(
+          sortOrder,
+          filter,
+          searchText,
+          downloadedOnlyMode,
+          PAGE_SIZE,
+          offset,
+          undefined,
+          categoryNovelIds,
+        );
+
+        if (reset) {
+          setNovels(searchResults);
+        } else {
+          setNovels(prev => [...prev, ...searchResults]);
+        }
+
+        setHasMoreData(searchResults.length === PAGE_SIZE);
+      } else {
+        const categoryNovels = getLibraryNovelsFromDb(
+          sortOrder,
+          filter,
+          undefined,
+          downloadedOnlyMode,
+          PAGE_SIZE,
+          offset,
+          undefined,
+          categoryNovelIds,
+        );
+
+        if (reset) {
+          setNovels(categoryNovels);
+        } else {
+          setNovels(prev => [...prev, ...categoryNovels]);
+        }
+
+        setHasMoreData(categoryNovels.length === PAGE_SIZE);
+      }
+    },
+    [
+      isFocused,
+      searchText,
+      sortOrder,
+      filter,
+      downloadedOnlyMode,
+      categoryNovelIds,
+    ],
+  );
+
+  const loadMoreNovels = useCallback(() => {
+    if (hasMoreData) {
+      loadNovels(false, novels);
+    }
+  }, [hasMoreData, loadNovels, novels]);
+
+  useEffect(() => {
+    setNovels([]);
+    setHasMoreData(true);
+    if (isFocused) {
+      loadNovels(true);
+    }
+  }, [searchText, categoryId, sortOrder, filter, downloadedOnlyMode]);
+
+  useEffect(() => {
+    if (isFocused && novels.length === 0) {
+      setHasMoreData(true);
+      loadNovels(true);
+    }
+  }, [isFocused]);
+
   const memoizedNovels = useMemo(() => novels, [novels]);
   const { matches: libraryMatches } = useLibraryMatching({
     novels: memoizedNovels,
   });
-  const renderItem = ({ item }: { item: NovelInfo }) => {
-    return (
-      <NovelCover
-        item={item}
-        theme={theme}
-        isSelected={selectedNovelIds.includes(item.id)}
-        match={libraryMatches[item.id]}
-        onLongPress={() =>
-          setSelectedNovelIds(xor(selectedNovelIds, [item.id]))
-        }
-        onPress={() => {
-          if (selectedNovelIds.length) {
-            setSelectedNovelIds(xor(selectedNovelIds, [item.id]));
-          } else {
-            navigation.navigate('ReaderStack', {
-              screen: 'Novel',
-              params: item,
-            });
+
+  const renderItem = useCallback(
+    ({ item }: { item: NovelInfo }) => {
+      return (
+        <NovelCover
+          item={item}
+          theme={theme}
+          isSelected={selectedNovelIds.includes(item.id)}
+          match={libraryMatches[item.id]}
+          onLongPress={() =>
+            setSelectedNovelIds(xor(selectedNovelIds, [item.id]))
           }
-        }}
-        libraryStatus={false} // yes but actually no :D
-        selectedNovelIds={selectedNovelIds}
-      />
-    );
-  };
+          onPress={() => {
+            if (selectedNovelIds.length) {
+              setSelectedNovelIds(xor(selectedNovelIds, [item.id]));
+            } else {
+              navigation.navigate('ReaderStack', {
+                screen: 'Novel',
+                params: item,
+              });
+            }
+          }}
+          libraryStatus={false}
+          selectedNovelIds={selectedNovelIds}
+        />
+      );
+    },
+    [theme, selectedNovelIds, libraryMatches, setSelectedNovelIds, navigation],
+  );
 
-  const [refreshing, setRefreshing] = useState(false);
-
-  const onRefresh = () => {
-    // local category
+  const onRefresh = useCallback(() => {
     if (categoryId === 2) {
       return;
     }
@@ -79,8 +174,12 @@ export const LibraryView: React.FC<Props> = ({
         categoryName,
       },
     });
-    setRefreshing(false);
-  };
+
+    setTimeout(() => {
+      loadNovels(true);
+      setRefreshing(false);
+    }, 1000);
+  }, [categoryId, categoryName, loadNovels]);
 
   return (
     <View style={styles.flex}>
@@ -88,6 +187,8 @@ export const LibraryView: React.FC<Props> = ({
         data={novels}
         extraData={[selectedNovelIds]}
         renderItem={renderItem as NovelListRenderItem}
+        onEndReached={loadMoreNovels}
+        onEndReachedThreshold={0.5}
         ListEmptyComponent={
           <EmptyView
             theme={theme}
