@@ -17,6 +17,7 @@ import { getString } from '@strings/translations';
 import { StyleSheet } from 'react-native';
 import { NovelInfo } from '@database/types';
 import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
+import { mergeUrlAndPath } from '@utils/urlUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrowseSourceScreenProps } from '@navigators/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
@@ -126,11 +127,12 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   };
 
   const handleImportSelected = useCallback(async () => {
+    showToast(`Import button pressed with ${selectedItems.length} items`);
+
     if (selectedItems.length === 0) return;
 
     const urls = selectedItems.map(item => {
-      const baseUrl = site.endsWith('/') ? site.slice(0, -1) : site;
-      return `${baseUrl}${item.path}`;
+      return mergeUrlAndPath(site, item.path);
     });
 
     const urlsText = urls.join('\n');

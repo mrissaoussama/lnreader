@@ -12,6 +12,7 @@ import {
 } from '@database/queries/NovelQueries';
 import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
+import { extractPathFromUrl } from '@utils/urlUtils';
 
 export interface ImportResult {
   added: { name: string; url: string }[];
@@ -52,7 +53,7 @@ const processUrl = async (
 
     let novelPath = url;
     if (url.startsWith(plugin.site)) {
-      novelPath = url.replace(plugin.site, '');
+      novelPath = extractPathFromUrl(url, plugin.site);
     }
 
     try {
@@ -90,9 +91,7 @@ const processUrl = async (
       if (!novel.path || typeof novel.path !== 'string') {
         novel.path = novelPath;
       } else if (novel.path !== novelPath) {
-        if (novel.path.startsWith(plugin.site)) {
-          novel.path = novel.path.replace(plugin.site, '');
-        }
+        novel.path = extractPathFromUrl(novel.path, plugin.site);
       }
 
       if (!Array.isArray(novel.chapters)) {
