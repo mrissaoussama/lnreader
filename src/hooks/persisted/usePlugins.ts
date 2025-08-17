@@ -11,7 +11,7 @@ import {
 } from '@plugins/pluginManager';
 import { newer } from '@utils/compareVersion';
 import { MMKVStorage, getMMKVObject, setMMKVObject } from '@utils/mmkv/mmkv';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { getString } from '@strings/translations';
 
 export const AVAILABLE_PLUGINS = 'AVAILABLE_PLUGINS';
@@ -20,6 +20,7 @@ export const LANGUAGES_FILTER = 'LANGUAGES_FILTER';
 export const LAST_USED_PLUGIN = 'LAST_USED_PLUGIN';
 export const FILTERED_AVAILABLE_PLUGINS = 'FILTERED_AVAILABLE_PLUGINS';
 export const FILTERED_INSTALLED_PLUGINS = 'FILTERED_INSTALLED_PLUGINS';
+export const PINNED_PLUGINS = 'PINNED_PLUGINS';
 
 const defaultLang = languagesMapping[locale.split('-')[0]] || 'English';
 
@@ -32,6 +33,8 @@ export default function usePlugins() {
     useMMKVObject<PluginItem[]>(FILTERED_AVAILABLE_PLUGINS);
   const [filteredInstalledPlugins = [], setFilteredInstalledPlugins] =
     useMMKVObject<PluginItem[]>(FILTERED_INSTALLED_PLUGINS);
+  const [pinnedPluginIds = [], setPinnedPluginIds] =
+    useMMKVObject<string[]>(PINNED_PLUGINS);
   /**
    * @param filter
    * We cant use the languagesFilter directly because it is updated only after component's lifecycle end.
@@ -175,6 +178,30 @@ export default function usePlugins() {
     });
   };
 
+  const isPinned = useCallback(
+    (id: string) => pinnedPluginIds?.includes(id) ?? false,
+    [pinnedPluginIds],
+  );
+
+  const togglePin = useCallback(
+    (id: string) => {
+      const current = pinnedPluginIds || [];
+      const next = current.includes(id)
+        ? current.filter(x => x !== id)
+        : [id, ...current];
+      setPinnedPluginIds(next);
+    },
+    [pinnedPluginIds, setPinnedPluginIds],
+  );
+
+  const pinnedInstalledPlugins = useMemo(
+    () =>
+      (filteredInstalledPlugins || []).filter(plg =>
+        (pinnedPluginIds || []).includes(plg.id),
+      ),
+    [filteredInstalledPlugins, pinnedPluginIds],
+  );
+
   return {
     filteredAvailablePlugins,
     filteredInstalledPlugins,
@@ -186,5 +213,9 @@ export default function usePlugins() {
     installPlugin,
     uninstallPlugin,
     updatePlugin,
+    pinnedPluginIds: pinnedPluginIds || [],
+    isPinned,
+    togglePin,
+    pinnedInstalledPlugins,
   };
 }

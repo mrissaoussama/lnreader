@@ -15,6 +15,7 @@ interface Props {
   route?: {
     params?: {
       searchText?: string;
+      pinnedOnly?: boolean;
     };
   };
 }
@@ -26,17 +27,23 @@ const GlobalSearchScreen = (props: Props) => {
     false,
   );
   const onChangeText = (text: string) => setSearchText(text);
-  const onSubmitEditing = () => globalSearch(searchText);
+  const pinnedOnly = !!props?.route?.params?.pinnedOnly;
+  const onSubmitEditing = () => globalSearch(searchText, pinnedOnly);
 
   const { searchResults, globalSearch, progress } = useGlobalSearch({
     defaultSearchText: searchText,
+    pinnedOnly,
   });
 
   return (
     <SafeAreaView>
       <SearchbarV2
         searchText={searchText}
-        placeholder={getString('browseScreen.globalSearch')}
+        placeholder={
+          pinnedOnly
+            ? `${getString('browseScreen.globalSearch')} (Pinned)`
+            : getString('browseScreen.globalSearch')
+        }
         leftIcon="magnify"
         onChangeText={onChangeText}
         onSubmitEditing={onSubmitEditing}

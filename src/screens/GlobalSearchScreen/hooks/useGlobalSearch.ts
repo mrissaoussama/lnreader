@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 interface Props {
   defaultSearchText?: string;
+  pinnedOnly?: boolean;
 }
 
 export interface GlobalSearchResult {
@@ -16,7 +17,7 @@ export interface GlobalSearchResult {
   error?: string | null;
 }
 
-export const useGlobalSearch = ({ defaultSearchText }: Props) => {
+export const useGlobalSearch = ({ defaultSearchText, pinnedOnly }: Props) => {
   const isMounted = useRef(true); //if user closes the search screen, cancel the search
   const isFocused = useRef(true); //if the user opens a sub-screen (e.g. novel screen), pause the search
   const lastSearch = useRef(''); //if the user changes search, cancel running searches
@@ -34,7 +35,7 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
     }, []),
   );
 
-  const { filteredInstalledPlugins } = usePlugins();
+  const { filteredInstalledPlugins, pinnedInstalledPlugins } = usePlugins();
 
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [progress, setProgress] = useState(0);
@@ -42,12 +43,16 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
   const { globalSearchConcurrency = 1 } = useBrowseSettings();
 
   const globalSearch = useCallback(
-    (searchText: string) => {
-      if (lastSearch.current === searchText) {
+    (searchText: string, pinnedOnlyArg?: boolean) => {
+      const key = `${pinnedOnlyArg ? 'p' : 'a'}::${searchText}`;
+      if (lastSearch.current === key) {
         return;
       }
-      lastSearch.current = searchText;
-      const defaultResult: GlobalSearchResult[] = filteredInstalledPlugins.map(
+      lastSearch.current = key;
+      const pluginsToSearch = (
+        pinnedOnlyArg ? pinnedInstalledPlugins : filteredInstalledPlugins
+      ) as PluginItem[];
+      const defaultResult: GlobalSearchResult[] = pluginsToSearch.map(
         plugin => ({
           isLoading: true,
           plugin,
@@ -68,7 +73,9 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
             throw new Error(`Unknown plugin: ${_plugin.id}`);
           }
           const res = await plugin.searchNovels(searchText, 1);
-
+          if (lastSearch.current !== key) {
+            return;
+          }
           setSearchResults(prevState =>
             prevState
               .map(prevResult =>
@@ -80,6 +87,9 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
           );
         } catch (error: any) {
           const errorMessage = error?.message || String(error);
+          if (lastSearch.current !== key) {
+            return;
+          }
           setSearchResults(prevState =>
             prevState
               .map(prevResult =>
@@ -98,8 +108,8 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
       }
 
       //Sort so we load the plugins results in the same order as they show on the list
-      const filteredSortedInstalledPlugins = [...filteredInstalledPlugins].sort(
-        (a, b) => a.name.localeCompare(b.name),
+      const filteredSortedInstalledPlugins = [...pluginsToSearch].sort((a, b) =>
+        a.name.localeCompare(b.name),
       );
 
       (async () => {
@@ -108,17 +118,16 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
             while (running >= globalSearchConcurrency || !isFocused.current) {
               await new Promise(resolve => setTimeout(resolve, 100));
             }
-            if (!isMounted.current || lastSearch.current !== searchText) {
+            if (!isMounted.current || lastSearch.current !== key) {
               break;
             }
             running++;
             searchInPlugin(_plugin)
               .then(() => {
                 running--;
-                if (lastSearch.current === searchText) {
+                if (lastSearch.current === key) {
                   setProgress(
-                    prevState =>
-                      prevState + 1 / filteredInstalledPlugins.length,
+                    prevState => prevState + 1 / pluginsToSearch.length,
                   );
                 }
               })
@@ -128,30 +137,28 @@ export const useGlobalSearch = ({ defaultSearchText }: Props) => {
           }
         } else {
           for (const _plugin of filteredSortedInstalledPlugins) {
-            if (!isMounted.current || lastSearch.current !== searchText) {
+            if (!isMounted.current || lastSearch.current !== key) {
               break;
             }
             while (!isFocused.current) {
               await new Promise(resolve => setTimeout(resolve, 100));
             }
             await searchInPlugin(_plugin);
-            if (lastSearch.current === searchText) {
-              setProgress(
-                prevState => prevState + 1 / filteredInstalledPlugins.length,
-              );
+            if (lastSearch.current === key) {
+              setProgress(prevState => prevState + 1 / pluginsToSearch.length);
             }
           }
         }
       })();
     },
-    [filteredInstalledPlugins, globalSearchConcurrency],
+    [filteredInstalledPlugins, pinnedInstalledPlugins, globalSearchConcurrency],
   );
 
   useEffect(() => {
     if (defaultSearchText) {
-      globalSearch(defaultSearchText);
+      globalSearch(defaultSearchText, pinnedOnly);
     }
-  }, [defaultSearchText, globalSearch]);
+  }, [defaultSearchText, pinnedOnly, globalSearch]);
 
   return { searchResults, globalSearch, progress };
 };

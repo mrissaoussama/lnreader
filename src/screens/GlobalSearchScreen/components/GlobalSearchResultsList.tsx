@@ -13,7 +13,9 @@ import { GlobalSearchResult } from '../hooks/useGlobalSearch';
 import GlobalSearchSkeletonLoading from '@screens/browse/loadingAnimation/GlobalSearchSkeletonLoading';
 import { interpolateColor } from 'react-native-reanimated';
 import { useLibraryContext } from '@components/Context/LibraryContext';
+import { useBrowseSettings } from '@hooks/persisted/useSettings';
 import NovelCover from '@components/NovelCover';
+import { useLibraryMatching } from '@hooks/useLibraryMatching';
 
 interface GlobalSearchResultsListProps {
   searchResults: GlobalSearchResult[];
@@ -47,6 +49,11 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
   const navigation = useNavigation<StackNavigationProp<any>>();
   const [inActivity, setInActivity] = useState<Record<string, boolean>>({});
   const { novelInLibrary, switchNovelToLibrary } = useLibraryContext();
+  const { hideInLibraryItems } = useBrowseSettings();
+  const { matches: libraryMatches } = useLibraryMatching({
+    novels: item.novels,
+    pluginId: item.plugin.id,
+  });
 
   const errorColor = theme.isDark ? '#B3261E' : '#F2B8B5';
   const noResultsColor = interpolateColor(
@@ -108,7 +115,13 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
               horizontal
               contentContainerStyle={styles.novelsContainer}
               keyExtractor={novelItem => item.plugin.id + '_' + novelItem.path}
-              data={item.novels}
+              data={
+                hideInLibraryItems
+                  ? item.novels.filter(
+                      n => !novelInLibrary(item.plugin.id, n.path),
+                    )
+                  : item.novels
+              }
               extraData={inActivity.length}
               ListEmptyComponent={
                 <Text style={[styles.listEmpty, { color: noResultsColor }]}>
@@ -127,6 +140,7 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
                     item={novelItem}
                     libraryStatus={inLibrary}
                     inActivity={inActivity[novelItem.path]}
+                    match={libraryMatches[novelItem.path]}
                     onPress={() =>
                       navigateToNovel({
                         ...novelItem,
@@ -170,10 +184,12 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
       item.plugin.lang,
       item.plugin.name,
       item.plugin.site,
+      libraryMatches,
       navigateToNovel,
       navigation,
       noResultsColor,
       novelInLibrary,
+      hideInLibraryItems,
       switchNovelToLibrary,
       theme,
     ],

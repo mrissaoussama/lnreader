@@ -48,7 +48,7 @@ const Item = memo(
     navigateToSource: (plugin: PluginItem, showLatestNovels?: boolean) => void;
     setSelectedPluginId: React.Dispatch<React.SetStateAction<string>>;
   }) => {
-    const { uninstallPlugin, updatePlugin } = usePlugins();
+    const { uninstallPlugin, updatePlugin, isPinned, togglePin } = usePlugins();
 
     // Memoized styles
     const leftActionStyle = useMemo(
@@ -178,6 +178,13 @@ const Item = memo(
             </View>
           </View>
           <View style={styles.flex} />
+          <IconButtonV2
+            name={isPinned(item.id) ? 'pin' : 'pin-outline'}
+            size={22}
+            color={theme.primary}
+            onPress={() => togglePin(item.id)}
+            theme={theme}
+          />
           {item.hasSettings ? (
             <IconButtonV2
               name="cog-outline"
@@ -329,8 +336,13 @@ const DeferredItem = ({
 
 export const InstalledTab = memo(
   ({ navigation, theme, searchText }: InstalledTabProps) => {
-    const { filteredInstalledPlugins, lastUsedPlugin, setLastUsedPlugin } =
-      usePlugins();
+    const {
+      filteredInstalledPlugins,
+      pinnedInstalledPlugins,
+      pinnedPluginIds,
+      lastUsedPlugin,
+      setLastUsedPlugin,
+    } = usePlugins();
     const { showMyAnimeList, showAniList } = useBrowseSettings();
     const settingsModal = useBoolean();
     const [selectedPluginId, setSelectedPluginId] = useState<string>('');
@@ -353,7 +365,10 @@ export const InstalledTab = memo(
     );
 
     const searchedPlugins = useMemo(() => {
-      const sortedInstalledPlugins = filteredInstalledPlugins.sort(
+      const nonPinnedInstalled = filteredInstalledPlugins.filter(
+        plg => !(pinnedPluginIds || []).includes(plg.id),
+      );
+      const sortedInstalledPlugins = nonPinnedInstalled.sort(
         (plgFirst, plgSecond) => plgFirst.name.localeCompare(plgSecond.name),
       );
       if (searchText) {
@@ -366,7 +381,7 @@ export const InstalledTab = memo(
       } else {
         return sortedInstalledPlugins;
       }
-    }, [searchText, filteredInstalledPlugins]);
+    }, [searchText, filteredInstalledPlugins, pinnedPluginIds]);
 
     const renderItem: ListRenderItem<PluginItem> = useCallback(
       ({ item }) => {
@@ -395,6 +410,28 @@ export const InstalledTab = memo(
         drawDistance={100}
         ListHeaderComponent={
           <>
+            {pinnedInstalledPlugins?.length ? (
+              <>
+                <Text
+                  style={[styles.listHeader, { color: theme.onSurfaceVariant }]}
+                >
+                  Pinned
+                </Text>
+                {pinnedInstalledPlugins
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(plg => (
+                    <DeferredItem
+                      key={plg.id + '_pinned'}
+                      item={plg}
+                      theme={theme}
+                      navigation={navigation}
+                      settingsModal={settingsModal}
+                      navigateToSource={navigateToSource}
+                      setSelectedPluginId={setSelectedPluginId}
+                    />
+                  ))}
+              </>
+            ) : null}
             {showMyAnimeList || showAniList ? (
               <>
                 <Text

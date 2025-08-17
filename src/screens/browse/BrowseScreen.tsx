@@ -25,8 +25,14 @@ const BrowseScreen = ({ navigation }: BrowseScreenProps) => {
     () =>
       [
         {
-          iconName: 'book-search',
-          onPress: () => navigation.navigate('GlobalSearchScreen', {}),
+          iconName: 'magnify',
+          onPress: () =>
+            navigation.navigate('GlobalSearchScreen', { pinnedOnly: false }),
+        },
+        {
+          iconName: 'pin',
+          onPress: () =>
+            navigation.navigate('GlobalSearchScreen', { pinnedOnly: true }),
         },
         {
           iconName: 'swap-vertical-variant',
@@ -45,8 +51,7 @@ const BrowseScreen = ({ navigation }: BrowseScreenProps) => {
       navigation.addListener('tabPress', e => {
         if (navigation.isFocused()) {
           e.preventDefault();
-
-          navigation.navigate('GlobalSearchScreen', {});
+          navigation.navigate('GlobalSearchScreen', { pinnedOnly: false });
         }
       }),
     [navigation],
