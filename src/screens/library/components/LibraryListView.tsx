@@ -27,6 +27,7 @@ interface Props {
   navigation: LibraryScreenProps['navigation'];
   pickAndImport: () => void;
   isFocused?: boolean;
+  libraryChangeKey?: number; // Add dependency to trigger reloads when library changes
 }
 
 export const LibraryView: React.FC<Props> = ({
@@ -39,6 +40,7 @@ export const LibraryView: React.FC<Props> = ({
   pickAndImport,
   navigation,
   isFocused = true,
+  libraryChangeKey,
 }) => {
   const theme = useTheme();
   const {
@@ -119,14 +121,23 @@ export const LibraryView: React.FC<Props> = ({
     if (isFocused) {
       loadNovels(true);
     }
-  }, [searchText, categoryId, sortOrder, filter, downloadedOnlyMode]);
+  }, [
+    searchText,
+    categoryId,
+    sortOrder,
+    filter,
+    downloadedOnlyMode,
+    libraryChangeKey,
+    isFocused,
+    loadNovels,
+  ]);
 
   useEffect(() => {
     if (isFocused && novels.length === 0) {
       setHasMoreData(true);
       loadNovels(true);
     }
-  }, [isFocused]);
+  }, [isFocused, novels.length, loadNovels]);
 
   const memoizedNovels = useMemo(() => novels, [novels]);
   const { matches: libraryMatches } = useLibraryMatching({
