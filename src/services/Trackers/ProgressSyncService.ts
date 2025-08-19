@@ -7,7 +7,7 @@ import {
   markChaptersRead,
   getNovelChapters,
 } from '@database/queries/ChapterQueries';
-import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
+import { getTrackedNovelsInLibrary } from '@database/queries/NovelQueries';
 import { TrackerAuthUtils } from './common/utils';
 import { NovelInfo } from '@database/types';
 
@@ -23,12 +23,14 @@ interface SyncResult {
     tracker: string;
     oldProgress: number;
     newProgress: number;
+    error?: string;
   }>;
   appChange?: {
     oldProgress: number;
     newProgress: number;
   };
   error?: string;
+  skipped?: boolean;
 }
 
 /**
@@ -280,7 +282,7 @@ export class ProgressSyncService {
     forceUpdate: boolean = false,
   ): Promise<{ novels: SyncResult[] }> {
     const allAuth = this.getAllTrackerAuth();
-    const libraryNovels = getLibraryNovelsFromDb(null, null, null, false);
+    const libraryNovels = await getTrackedNovelsInLibrary();
     const results: SyncResult[] = [];
 
     let processed = 0;
@@ -294,10 +296,6 @@ export class ProgressSyncService {
         });
 
         const tracks = await getTracks(novel.id);
-        if (tracks.length === 0) {
-          processed++;
-          continue;
-        }
 
         // Get current app progress
         const appChapters = await getNovelChapters(novel.id);
@@ -379,7 +377,7 @@ export class ProgressSyncService {
     forceUpdate: boolean = false,
   ): Promise<{ novels: SyncResult[] }> {
     const allAuth = this.getAllTrackerAuth();
-    const libraryNovels = getLibraryNovelsFromDb(null, null, null, false);
+    const libraryNovels = await getTrackedNovelsInLibrary();
     const results: SyncResult[] = [];
 
     let processed = 0;
@@ -393,10 +391,6 @@ export class ProgressSyncService {
         });
 
         const tracks = await getTracks(novel.id);
-        if (tracks.length === 0) {
-          processed++;
-          continue;
-        }
 
         // Get current app progress
         const appChapters = await getNovelChapters(novel.id);
@@ -460,7 +454,7 @@ export class ProgressSyncService {
     forceUpdate: boolean = false,
   ): Promise<{ novels: SyncResult[] }> {
     const allAuth = this.getAllTrackerAuth();
-    const libraryNovels = getLibraryNovelsFromDb(null, null, null, false);
+    const libraryNovels = await getTrackedNovelsInLibrary();
     const results: SyncResult[] = [];
 
     let processed = 0;
@@ -474,10 +468,6 @@ export class ProgressSyncService {
         });
 
         const tracks = await getTracks(novel.id);
-        if (tracks.length === 0) {
-          processed++;
-          continue;
-        }
 
         // Get current app progress
         const appChapters = await getNovelChapters(novel.id);

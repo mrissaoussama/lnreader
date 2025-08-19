@@ -27,10 +27,12 @@ export const insertNovelAndChapters = async (
   pluginId: string,
   sourceNovel: SourceNovel,
 ): Promise<number | undefined> => {
+  const { normalizePath } = require('@utils/urlUtils');
+  const normalizedPath = normalizePath(sourceNovel.path || '');
   const insertNovelQuery =
     'INSERT INTO Novel (path, pluginId, name, cover, summary, author, artist, status, genres, totalPages) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
   const novelId: number | undefined = db.runSync(insertNovelQuery, [
-    sourceNovel.path,
+    normalizedPath,
     pluginId,
     sourceNovel.name,
     sourceNovel.cover || null,
@@ -101,9 +103,12 @@ export const getNovelByPath = (
   novelPath: string,
   pluginId: string,
 ): NovelInfo | undefined => {
+  const { normalizePath } = require('@utils/urlUtils');
+  const normalized = normalizePath(novelPath || '');
+  // Backward-compatible lookup: accept both normalized and with leading slash
   const res = getFirstSync<NovelInfo>([
-    'SELECT * FROM Novel WHERE path = ? AND pluginId = ?',
-    [novelPath, pluginId],
+    'SELECT * FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+    [pluginId, normalized, '/' + normalized],
   ]);
   if (!res) {
     return undefined;
@@ -490,4 +495,12 @@ export const clearAlternativeTitles = async (
 ): Promise<void> => {
   await db.runAsync('DELETE FROM AlternativeTitle WHERE novelId = ?', novelId);
   await updateNovelHasMatch(novelId);
+};
+
+export const getTrackedNovelsInLibrary = async (): Promise<NovelInfo[]> => {
+  return getAllAsync<NovelInfo>([
+    `SELECT DISTINCT n.* FROM Novel n 
+     INNER JOIN tracks t ON n.id = t.novelId 
+     WHERE n.inLibrary = 1`,
+  ]);
 };
