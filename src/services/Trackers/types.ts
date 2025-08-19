@@ -2,13 +2,15 @@ export type TrackerName =
   | 'AniList'
   | 'MyAnimeList'
   | 'Novel-Updates'
-  | 'Novellist';
+  | 'Novellist'
+  | 'MangaUpdates';
 
 export const TRACKER_SOURCES = {
   ANILIST: 'AniList' as const,
   MYANIMELIST: 'MyAnimeList' as const,
   NOVEL_UPDATES: 'Novel-Updates' as const,
   NOVELLIST: 'Novellist' as const,
+  MANGAUPDATES: 'MangaUpdates' as const,
 } as const;
 
 export type TrackerCapabilities = {
@@ -187,6 +189,7 @@ export type Tracker<AuthMeta = any> = {
   getUserListEntry: (
     id: number | string,
     authentication: AuthenticationResult<AuthMeta>,
+    novel: { id: number },
   ) => Promise<UserListEntry>;
 
   /**

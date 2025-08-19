@@ -78,6 +78,9 @@ const TrackModal: React.FC<TrackModalProps> = ({
   const [dialogAvailableLists, setDialogAvailableLists] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const [expandedSearchItem, setExpandedSearchItem] = useState<any | null>(
+    null,
+  );
   const [dialogSelectedListId, setDialogSelectedListId] = useState<
     string | null
   >(null);
@@ -131,20 +134,18 @@ const TrackModal: React.FC<TrackModalProps> = ({
     [theme.primary],
   );
 
-  const renderSearchItemIcon = useCallback(
-    item =>
-      item.coverImage ? (
-        <Image
-          source={{
-            uri: item.coverImage,
-          }}
-          style={styles.coverImage}
-        />
-      ) : (
-        <List.Icon icon="book" />
-      ),
-    [],
-  );
+  const renderSearchItemIcon = useCallback(item => {
+    return item.coverImage ? (
+      <Image
+        source={{
+          uri: item.coverImage,
+        }}
+        style={styles.coverImage}
+      />
+    ) : (
+      <List.Icon icon="book" />
+    );
+  }, []);
   const saveCachedReadingLists = (tracker, lists) => {
     try {
       MMKVStorage.set(getReadingListsCacheKey(tracker), JSON.stringify(lists));
@@ -238,6 +239,7 @@ const TrackModal: React.FC<TrackModalProps> = ({
         if (isNewSearch) {
           setSearchResults(results);
           setCurrentPage(1);
+          setExpandedSearchItem(null);
           const tracker = allTrackers[selectedTracker];
           if (tracker && tracker.capabilities.supportsPagination) {
             setHasMore(results.length > 0);
@@ -511,7 +513,11 @@ const TrackModal: React.FC<TrackModalProps> = ({
       const auth = getTrackerAuth(selectedTracker);
       const tracker = allTrackers[selectedTracker];
       if (auth && tracker && tracker.getUserListEntry) {
-        const entry = await tracker.getUserListEntry(String(item.id), auth);
+        const entry = await tracker.getUserListEntry(
+          String(item.id),
+          auth,
+          novel,
+        );
         if (entry && typeof entry.progress === 'number') {
           trackerProgress = entry.progress;
         }
@@ -970,20 +976,120 @@ const TrackModal: React.FC<TrackModalProps> = ({
       );
     }
   };
-  const renderSearchItem = ({ item }) => (
-    <List.Item
-      title={item.title}
-      description={`${
-        item.totalChapters ? `${item.totalChapters} chapters` : ''
-      } • ${item.description?.substring(0, 300)}${
-        item.description && item.description.length > 300 ? '...' : ''
-      }`}
-      left={() => renderSearchItemIcon(item)}
-      onPress={() => handleLink(item)}
-      titleNumberOfLines={2}
-      descriptionNumberOfLines={3}
-    />
-  );
+  const renderSearchItem = ({ item }) => {
+    const isExpanded = expandedSearchItem === item;
+    let description = '';
+    if (item.totalChapters) {
+      description += `${item.totalChapters} chapters`;
+    }
+
+    if (item.description) {
+      if (description) description += ' • ';
+      description += item.description;
+    }
+
+    if (isExpanded && item.genres?.length > 0) {
+      if (description) description += '\n\n';
+      description += `Genres: ${item.genres.join(', ')}`;
+    }
+
+    const handleWebViewPress = () => {
+      let url = item.url;
+      if (!url && selectedTracker) {
+        const trackerImpl = allTrackers[selectedTracker];
+        if (trackerImpl && typeof trackerImpl.getEntryUrl === 'function') {
+          const trackData = {
+            sourceId: item.id,
+            metadata: item.__trackerMeta
+              ? JSON.stringify(item.__trackerMeta)
+              : undefined,
+          };
+          url = trackerImpl.getEntryUrl(trackData);
+        }
+      }
+
+      if (url) {
+        navigation.navigate(
+          'WebviewScreen' as never,
+          {
+            url: url,
+            name: item.title,
+          } as never,
+        );
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        style={[styles.searchResultItem, { borderBottomColor: theme.outline }]}
+        onPress={() => handleLink(item)}
+        onLongPress={() => {
+          if (isExpanded) {
+            setExpandedSearchItem(null);
+          } else {
+            setExpandedSearchItem(item);
+          }
+        }}
+      >
+        <View style={styles.searchResultContent}>
+          {/* Left icon */}
+          <View style={styles.searchResultIcon}>
+            {renderSearchItemIcon(item)}
+          </View>
+
+          {/* Content */}
+          <View style={styles.searchResultText}>
+            {/* Title */}
+            <Text
+              style={[styles.searchResultTitle, { color: theme.onSurface }]}
+              numberOfLines={2}
+            >
+              {item.title}
+            </Text>
+
+            {/* Web icon row - only show when expanded */}
+            {isExpanded &&
+              (() => {
+                const trackerImpl = selectedTracker
+                  ? allTrackers[selectedTracker]
+                  : null;
+                const hasUrl =
+                  item.url ||
+                  (trackerImpl &&
+                    typeof trackerImpl.getEntryUrl === 'function');
+                return hasUrl;
+              })() && (
+                <TouchableOpacity
+                  style={styles.webIconRow}
+                  onPress={handleWebViewPress}
+                >
+                  <IconButton
+                    icon="web"
+                    iconColor={theme.primary}
+                    size={20}
+                    style={styles.webIcon}
+                  />
+                  <Text style={[styles.webText, { color: theme.primary }]}>
+                    View on web
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Description */}
+            <Text
+              style={[
+                styles.searchResultDescription,
+                { color: theme.onSurfaceVariant },
+              ]}
+              numberOfLines={isExpanded ? undefined : 3}
+            >
+              {description}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
   const { top: topInset } = useSafeAreaInsets();
 
   const onDismiss = () => setVisible(false);
@@ -1030,6 +1136,7 @@ const TrackModal: React.FC<TrackModalProps> = ({
                     setSearchActive(false);
                     setSearchResults([]);
                     setSelectedTracker(undefined);
+                    setExpandedSearchItem(null);
                   }}
                   iconColor={theme.onSurface}
                 />
@@ -1662,6 +1769,44 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textDecorationLine: 'underline',
     fontSize: 16,
+  },
+  searchResultItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 0.5,
+  },
+  searchResultContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  searchResultIcon: {
+    marginRight: 12,
+  },
+  searchResultText: {
+    flex: 1,
+  },
+  searchResultTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  searchResultDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  webIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    marginTop: 2,
+  },
+  webIcon: {
+    margin: 0,
+    marginRight: 4,
+  },
+  webText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

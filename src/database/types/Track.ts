@@ -2,7 +2,8 @@ export type TrackSource =
   | 'AniList'
   | 'MyAnimeList'
   | 'Novel-Updates'
-  | 'Novellist';
+  | 'Novellist'
+  | 'MangaUpdates';
 
 export enum TrackStatus {
   Reading = 'Reading',

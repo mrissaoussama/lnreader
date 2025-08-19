@@ -505,18 +505,32 @@ const handleSearch: Tracker['handleSearch'] = async (
         }
       }
 
+      const genres: string[] = [];
+      $(element)
+        .find('.search_genre a')
+        .each((_, genreLink) => {
+          const genreText = $(genreLink).text().trim();
+          if (genreText) {
+            genres.push(genreText);
+          }
+        });
+
       if (title && id) {
-        results.push({
+        const result: SearchResult = {
           id,
           title,
           coverImage: coverImage?.startsWith('http')
             ? coverImage
             : `${NOVEL_UPDATES_BASE_URL}${coverImage}`,
-          description:
-            description.length > 300
-              ? description.substring(0, 300) + '...'
-              : description,
-        });
+          description,
+          genres: genres.length > 0 ? genres : undefined,
+          __trackerMeta: {
+            slug,
+            novelId: numericId,
+          },
+        };
+
+        results.push(result);
       }
     });
 
