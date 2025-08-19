@@ -144,30 +144,51 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
   useEffect(() => {
     const getSummaryText = (results: ImportResult) => {
-      let summary = `ADDED (${results.added.length}):\n`;
-      results.added.forEach(
-        item => (summary += `- ${item.name}: ${item.url}\n`),
-      );
+      const timestamp = new Date().toLocaleString();
+      let summary = 'Mass Import Report\n';
+      summary += `Generated: ${timestamp}\n\n`;
 
-      summary += `\nSKIPPED (${results.skipped.length}):\n`;
-      results.skipped.forEach(
-        item => (summary += `- ${item.name}: ${item.url}\n`),
-      );
+      summary += 'SUMMARY:\n';
+      summary += `Total URLs processed: ${
+        results.added.length + results.skipped.length + results.errored.length
+      }\n`;
+      summary += `Successfully added: ${results.added.length}\n`;
+      summary += `Already in library (skipped): ${results.skipped.length}\n`;
+      summary += `Failed with errors: ${results.errored.length}\n\n`;
 
-      summary += `\nERRORED (${results.errored.length}):\n`;
-      results.errored.forEach(
-        item =>
-          (summary += `- ${item.name}: ${item.url} (Error: ${item.error})\n`),
-      );
+      if (results.added.length > 0) {
+        summary += `SUCCESSFULLY ADDED (${results.added.length}):\n`;
+        results.added.forEach(
+          item => (summary += `✅ ${item.name}\n   URL: ${item.url}\n\n`),
+        );
+      }
+
+      if (results.skipped.length > 0) {
+        summary += `ALREADY IN LIBRARY (${results.skipped.length}):\n`;
+        results.skipped.forEach(
+          item => (summary += `⏭️ ${item.name}\n   URL: ${item.url}\n\n`),
+        );
+      }
+
+      if (results.errored.length > 0) {
+        summary += `FAILED WITH ERRORS (${results.errored.length}):\n`;
+        results.errored.forEach(
+          item =>
+            (summary += `❌ ${item.name}\n   URL: ${item.url}\n   Error: ${item.error}\n\n`),
+        );
+      }
 
       return summary;
     };
 
     const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
-      if (task && !task.isRunning && task.result) {
-        const summary = getSummaryText(task.result);
+      if (task && !task.meta.isRunning && task.meta.result) {
+        const summary = getSummaryText(task.meta.result);
         Clipboard.setStringAsync(summary);
-        showToast(getString('common.copiedToClipboard'));
+        const results = task.meta.result;
+        showToast(
+          `Import: ✅${results.added.length} ⏭️${results.skipped.length} ❌${results.errored.length} | Report copied`,
+        );
         refetchLibrary();
       }
     });
@@ -175,6 +196,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       const timestamp = new Date().toLocaleString();
       let report = `Tracker Sync Report (${type.toUpperCase()})\n`;
       report += `Generated: ${timestamp}\n\n`;
+
       const stats = {
         total: results.novels?.length || 0,
         errors: 0,
@@ -182,7 +204,9 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         trackersUpdated: 0,
         skipped: 0,
         trackerChanges: 0,
+        trackerErrors: 0,
       };
+
       results.novels?.forEach(result => {
         if (result.error) {
           stats.errors++;
@@ -193,69 +217,103 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           ) {
             stats.appUpdated++;
           }
+
           let hasTrackerChanges = false;
+          let hasTrackerErrors = false;
+
           result.trackerChanges?.forEach(change => {
-            if (change.oldProgress !== change.newProgress) {
+            if (change.error) {
+              hasTrackerErrors = true;
+              stats.trackerErrors++;
+            } else if (change.oldProgress !== change.newProgress) {
               hasTrackerChanges = true;
               stats.trackerChanges++;
             }
           });
+
           if (hasTrackerChanges) {
             stats.trackersUpdated++;
           }
+
+          if (hasTrackerErrors) {
+            stats.errors++;
+          }
+
           if (
-            !result.appChange &&
-            (!result.trackerChanges || result.trackerChanges.length === 0)
-          ) {
-            stats.skipped++;
-          } else if (
-            result.appChange &&
-            result.appChange.oldProgress === result.appChange.newProgress &&
+            (!result.appChange ||
+              result.appChange.oldProgress === result.appChange.newProgress) &&
             (!result.trackerChanges ||
-              result.trackerChanges.every(c => c.oldProgress === c.newProgress))
+              result.trackerChanges.length === 0 ||
+              result.trackerChanges.every(
+                c => c.oldProgress === c.newProgress && !c.error,
+              ))
           ) {
             stats.skipped++;
           }
         }
       });
+
       report += 'SUMMARY:\n';
       report += `Total novels processed: ${stats.total}\n`;
       report += `App progress updated: ${stats.appUpdated}\n`;
       report += `Novels with tracker updates: ${stats.trackersUpdated}\n`;
       report += `Total tracker changes: ${stats.trackerChanges}\n`;
-      report += `Skipped (no changes): ${stats.skipped}\n`;
-      report += `Errors: ${stats.errors}\n\n`;
+      report += `Tracker errors: ${stats.trackerErrors}\n`;
+      if (stats.skipped > 0) {
+        report += `Skipped (no changes): ${stats.skipped}\n`;
+      }
+      report += `Novel errors: ${stats.errors}\n\n`;
+
       report += 'DETAILS:\n';
       results.novels?.forEach((result, resultIndex) => {
+        let hasActualChanges = false;
+
+        if (
+          result.appChange &&
+          result.appChange.oldProgress !== result.appChange.newProgress
+        ) {
+          hasActualChanges = true;
+        }
+
+        if (
+          result.trackerChanges?.some(
+            change => change.error || change.oldProgress !== change.newProgress,
+          )
+        ) {
+          hasActualChanges = true;
+        }
+
+        if (result.error) {
+          hasActualChanges = true;
+        }
+
+        if (!hasActualChanges) {
+          return;
+        }
+
         report += `${resultIndex + 1}. ${result.novelName}\n`;
         if (result.error) {
-          report += `   ❌ Error: ${result.error}\n`;
+          report += `   ❌ Novel Error: ${result.error}\n`;
         } else {
-          let hasAnyChanges = false;
           if (result.appChange) {
             const appIcon =
               result.appChange.oldProgress === result.appChange.newProgress
                 ? '✅'
                 : '🔄';
             report += `   📱 App: ${result.appChange.oldProgress} → ${result.appChange.newProgress} ${appIcon}\n`;
-            if (result.appChange.oldProgress !== result.appChange.newProgress) {
-              hasAnyChanges = true;
-            }
           }
+
           result.trackerChanges?.forEach(change => {
-            const icon =
-              change.oldProgress === change.newProgress ? '✅' : '🔄';
-            report += `   ${icon} ${change.tracker}: ${change.oldProgress} → ${change.newProgress}\n`;
-            if (change.oldProgress !== change.newProgress) {
-              hasAnyChanges = true;
+            if (change.error) {
+              report += `   ❌ ${change.tracker}: Error - ${change.error}\n`;
+            } else if (change.oldProgress !== change.newProgress) {
+              report += `   🔄 ${change.tracker}: ${change.oldProgress} → ${change.newProgress}\n`;
             }
           });
-          if (!hasAnyChanges) {
-            report += '   ⏭️ No changes needed\n';
-          }
         }
         report += '\n';
       });
+
       return report;
     };
     const syncObservers = [
@@ -269,9 +327,11 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
               n.appChange &&
               n.appChange.oldProgress !== n.appChange.newProgress,
           ).length;
-          const errors = novels.filter(n => n.error).length;
+          const totalErrors = novels.filter(
+            n => n.error || n.trackerChanges?.some(c => c.error),
+          ).length;
           showToast(
-            `Sync from trackers completed! ${appUpdated} app updates, ${errors} errors. Report copied to clipboard.`,
+            `📥 Sync: 📱${appUpdated} ❌${totalErrors} | Report copied`,
           );
           refetchLibrary();
         }
@@ -286,9 +346,18 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
               n.trackerChanges &&
               n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
           ).length;
-          const errors = novels.filter(n => n.error).length;
+          const totalTrackerChanges = novels.reduce(
+            (count, n) =>
+              count +
+              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
+                .length || 0),
+            0,
+          );
+          const totalErrors = novels.filter(
+            n => n.error || n.trackerChanges?.some(c => c.error),
+          ).length;
           showToast(
-            `Sync to trackers completed! ${trackersUpdated} novels updated, ${errors} errors. Report copied to clipboard.`,
+            `📤 Sync: 📚${trackersUpdated} (${totalTrackerChanges}) ❌${totalErrors} | Report copied`,
           );
           refetchLibrary();
         }
@@ -308,9 +377,18 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
               n.trackerChanges &&
               n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
           ).length;
-          const errors = novels.filter(n => n.error).length;
+          const totalTrackerChanges = novels.reduce(
+            (count, n) =>
+              count +
+              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
+                .length || 0),
+            0,
+          );
+          const totalErrors = novels.filter(
+            n => n.error || n.trackerChanges?.some(c => c.error),
+          ).length;
           showToast(
-            `Bidirectional sync completed! ${appUpdated} app updates, ${trackersUpdated} tracker updates, ${errors} errors. Report copied to clipboard.`,
+            `🔄 Sync: 📱${appUpdated} 📚${trackersUpdated} (${totalTrackerChanges}) ❌${totalErrors} | Report copied`,
           );
           refetchLibrary();
         }

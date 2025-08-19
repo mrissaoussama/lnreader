@@ -66,18 +66,20 @@ const TrackerSyncDialog: React.FC<TrackerSyncDialogProps> = ({
           {getSyncDescription()}
         </Text>
 
-        <View style={styles.checkboxContainer}>
-          <Checkbox
-            status={forceUpdate ? 'checked' : 'unchecked'}
-            onPress={() => setForceUpdate(!forceUpdate)}
-          />
-          <Text
-            style={[styles.checkboxLabel, { color: theme.onSurface }]}
-            onPress={() => setForceUpdate(!forceUpdate)}
-          >
-            Force update even if progress would decrease
-          </Text>
-        </View>
+        {syncType !== 'all' && (
+          <View style={styles.checkboxContainer}>
+            <Checkbox
+              status={forceUpdate ? 'checked' : 'unchecked'}
+              onPress={() => setForceUpdate(!forceUpdate)}
+            />
+            <Text
+              style={[styles.checkboxLabel, { color: theme.onSurface }]}
+              onPress={() => setForceUpdate(!forceUpdate)}
+            >
+              Force update even if progress would decrease
+            </Text>
+          </View>
+        )}
 
         <View style={styles.buttonContainer}>
           <Button mode="outlined" onPress={onDismiss} style={styles.button}>

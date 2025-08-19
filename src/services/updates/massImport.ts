@@ -12,7 +12,7 @@ import {
 } from '@database/queries/NovelQueries';
 import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
-import { extractPathFromUrl } from '@utils/urlUtils';
+import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
 
 export interface ImportResult {
   added: { name: string; url: string }[];
@@ -55,6 +55,8 @@ const processUrl = async (
     if (url.startsWith(plugin.site)) {
       novelPath = extractPathFromUrl(url, plugin.site);
     }
+    // Normalize for consistent DB behavior
+    const normalizedPath = normalizePath(novelPath);
 
     try {
       const novel = await fetchNovel(plugin.id, novelPath);
@@ -89,9 +91,9 @@ const processUrl = async (
       }
 
       if (!novel.path || typeof novel.path !== 'string') {
-        novel.path = novelPath;
+        novel.path = normalizedPath;
       } else if (novel.path !== novelPath) {
-        novel.path = extractPathFromUrl(novel.path, plugin.site);
+        novel.path = normalizePath(extractPathFromUrl(novel.path, plugin.site));
       }
 
       if (!Array.isArray(novel.chapters)) {
@@ -102,22 +104,20 @@ const processUrl = async (
         const existingNovel = await db.getFirstAsync<{
           id: number;
           inLibrary: number;
-        }>('SELECT id, inLibrary FROM Novel WHERE path = ? AND pluginId = ?', [
-          novel.path,
-          plugin.id,
-        ]);
+        }>(
+          'SELECT id, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+          [plugin.id, normalizedPath, '/' + normalizedPath],
+        );
 
         if (existingNovel) {
           if (existingNovel.inLibrary) {
-            showToast(`Already in library: ${novel.name}`);
             results.skipped.push({ name: novel.name, url });
           } else {
             const result = await switchNovelToLibraryQuery(
-              novel.path,
+              normalizedPath,
               plugin.id,
             );
             if (result?.inLibrary) {
-              showToast(`Added to library: ${novel.name}`);
               results.added.push({ name: novel.name, url });
             } else {
               const error = `Failed to add existing novel to library: ${novel.name}`;
@@ -126,12 +126,17 @@ const processUrl = async (
           }
           return;
         }
-        const novelId = await insertNovelAndChapters(plugin.id, novel);
+        const novelId = await insertNovelAndChapters(plugin.id, {
+          ...novel,
+          path: normalizedPath,
+        });
 
         if (novelId) {
-          const result = await switchNovelToLibraryQuery(novel.path, plugin.id);
+          const result = await switchNovelToLibraryQuery(
+            normalizedPath,
+            plugin.id,
+          );
           if (result?.inLibrary) {
-            showToast(`Successfully imported: ${novel.name}`);
             results.added.push({ name: novel.name, url });
           } else {
             const error = 'Novel imported but failed to add to library';
@@ -142,7 +147,6 @@ const processUrl = async (
           results.errored.push({ name: novel.name, url, error });
         }
       } catch (insertError: any) {
-        showToast(`Error importing ${novel.name}: ${insertError.message}`);
         results.errored.push({
           name: novel.name,
           url,
@@ -151,10 +155,9 @@ const processUrl = async (
       }
     } catch (fetchError: any) {
       const error = `Plugin error: ${plugin.name} ${fetchError.message}`;
-      showToast(error);
+      results.errored.push({ name: url, url, error: error });
     }
   } catch (error: any) {
-    showToast(`Unexpected error processing ${url}: ${error.message}`);
     results.errored.push({ name: url, url, error: error.message });
   }
 };

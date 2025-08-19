@@ -329,7 +329,11 @@ export default class ServiceManager {
                 n.appChange &&
                 n.appChange.oldProgress !== n.appChange.newProgress,
             ).length
-          } app updates, ${results.novels.filter(n => n.error).length} errors)`,
+          } app updates, ${
+            results.novels.filter(
+              n => n.error || n.trackerChanges?.some(c => c.error),
+            ).length
+          } errors)`,
           isRunning: false,
           result: results,
         }));
@@ -359,8 +363,16 @@ export default class ServiceManager {
                 n.trackerChanges &&
                 n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
             ).length
-          } tracker updates, ${
-            results.novels.filter(n => n.error).length
+          } novels with tracker updates, ${results.novels.reduce(
+            (count, n) =>
+              count +
+              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
+                .length || 0),
+            0,
+          )} total tracker changes, ${
+            results.novels.filter(
+              n => n.error || n.trackerChanges?.some(c => c.error),
+            ).length
           } errors)`,
           isRunning: false,
           result: results,
@@ -397,8 +409,16 @@ export default class ServiceManager {
                 n.trackerChanges &&
                 n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
             ).length
-          } tracker updates, ${
-            results.novels.filter(n => n.error).length
+          } novels with tracker updates, ${results.novels.reduce(
+            (count, n) =>
+              count +
+              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
+                .length || 0),
+            0,
+          )} total tracker changes, ${
+            results.novels.filter(
+              n => n.error || n.trackerChanges?.some(c => c.error),
+            ).length
           } errors)`,
           isRunning: false,
           result: results,
