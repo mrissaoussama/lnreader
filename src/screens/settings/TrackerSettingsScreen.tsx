@@ -17,6 +17,7 @@ import { trackers, TRACKER_SOURCES } from '@services/Trackers';
 import { TrackSource } from '@database/types/Track';
 import { showToast } from '@utils/showToast';
 import { deleteTracksBySource } from '@database/queries/TrackQueries';
+import MangaUpdatesLoginDialog from './components/MangaUpdatesLoginDialog';
 
 const TrackerSettingsScreen = ({ navigation }: any) => {
   const theme = useTheme();
@@ -33,6 +34,8 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
   const [selectedTrackerToLogout, setSelectedTrackerToLogout] =
     useState<TrackSource | null>(null);
   const [deleteLinkedNovels, setDeleteLinkedNovels] = useState(true);
+  const [mangaUpdatesLoginVisible, setMangaUpdatesLoginVisible] =
+    useState(false);
 
   const handleAutoSyncToggle = (value: boolean) => {
     setAppSettings({ autoSyncTracker: value });
@@ -52,6 +55,26 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
       showToast(`Custom threshold set to ${value} chapters`);
     } else {
       showToast('Please enter a valid number greater than 0');
+    }
+  };
+
+  const handleMangaUpdatesLogin = async (
+    username: string,
+    password: string,
+  ) => {
+    try {
+      const tracker = trackers[TRACKER_SOURCES.MANGAUPDATES];
+      if (!tracker) {
+        throw new Error('MangaUpdates tracker not available');
+      }
+
+      showToast('Logging in to MangaUpdates...');
+      const authResult = await tracker.authenticate(username, password);
+      setTracker(TRACKER_SOURCES.MANGAUPDATES, authResult);
+      showToast('Successfully logged in to MangaUpdates');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      throw new Error(message);
     }
   };
 
@@ -92,6 +115,11 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
         return;
       }
 
+      if (source === TRACKER_SOURCES.MANGAUPDATES) {
+        setMangaUpdatesLoginVisible(true);
+        return;
+      }
+
       // Handle OAuth trackers (AniList, MyAnimeList, etc.)
       showToast(`Opening ${source} authentication...`);
       const authResult = await tracker.authenticate();
@@ -117,7 +145,11 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
       const authResult = await tracker.authenticate();
       setTracker(source, authResult);
 
-      if (authResult.meta?.message?.includes('Successfully authenticated')) {
+      if (
+        (authResult as any)?.meta?.message?.includes(
+          'Successfully authenticated',
+        )
+      ) {
         showToast(`Successfully refreshed ${source} authentication`);
       } else {
         showToast('Please login through the webview first');
@@ -173,6 +205,8 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
         return 'Login with your MyAnimeList account to sync your reading progress';
       case TRACKER_SOURCES.NOVEL_UPDATES:
         return 'Login through webview. Complete login (check Remember me) in browser, then close the webview.';
+      case TRACKER_SOURCES.MANGAUPDATES:
+        return 'Enter your MangaUpdates username and password to login.';
       case TRACKER_SOURCES.NOVELLIST:
         return 'Login through webview. Complete login (only OpenNovel) in browser, then close the webview and click refresh auth.';
       default:
@@ -427,6 +461,12 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <MangaUpdatesLoginDialog
+        visible={mangaUpdatesLoginVisible}
+        onDismiss={() => setMangaUpdatesLoginVisible(false)}
+        onSubmit={handleMangaUpdatesLogin}
+      />
     </View>
   );
 };

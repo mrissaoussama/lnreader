@@ -2,20 +2,32 @@ import { anilist } from './aniList';
 import { myAnimeList } from './myAnimeList';
 import { novelUpdates } from './novelUpdates';
 import { novellist } from './novellist';
+import mangaUpdates from './mangaUpdates';
 export * from './types';
-export const trackers = {
+export const trackers: any = {
   AniList: anilist,
   MyAnimeList: myAnimeList,
   'Novel-Updates': novelUpdates,
   'Novellist': novellist,
+  MangaUpdates: mangaUpdates,
 };
-export const searchTracker = async (source, query, auth, options) => {
+export const searchTracker = async (
+  source: any,
+  query: any,
+  auth?: any,
+  options?: any,
+) => {
   return trackers[source].handleSearch(query, auth, options);
 };
-export const getUserListEntry = async (source, id, auth) => {
+export const getUserListEntry = async (source: any, id: any, auth: any) => {
   return trackers[source].getUserListEntry(id, auth);
 };
-export const updateUserListEntry = async (source, id, payload, auth) => {
+export const updateUserListEntry = async (
+  source: any,
+  id: any,
+  payload: any,
+  auth: any,
+) => {
   if (!trackers[source]) {
     throw new Error(`Tracker not found for source: ${source}`);
   }
@@ -25,7 +37,7 @@ export const updateUserListEntry = async (source, id, payload, auth) => {
 };
 
 export const getTrackerEntryUrl = (
-  source: string,
+  source: any,
   track: { sourceId: string | number; metadata?: string },
   novel?: { path?: string; pluginId?: string; [k: string]: any },
 ): string | null => {

@@ -195,6 +195,10 @@ const handleSearch: Tracker['handleSearch'] = async (
             : []),
           ...(item.alternate_titles || []),
         ].filter((title, index, arr) => title && arr.indexOf(title) === index),
+        __trackerMeta: {
+          slug: item.slug,
+          novelSlug: item.slug,
+        },
       }));
     }
 

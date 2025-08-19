@@ -89,8 +89,10 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
         onDismiss={handleDismiss}
         style={[styles.dialog, { backgroundColor: theme.surface }]}
       >
-        <Dialog.Title style={{ color: theme.onSurface }}>
-          {`Update ${trackerName + ': ' + trackTitle}`}
+        <Dialog.Title>
+          <Text style={[{ color: theme.onSurface }, styles.title]}>
+            {trackerName}: {trackTitle}
+          </Text>
         </Dialog.Title>
         <Dialog.Content>
           <Text style={{ color: theme.onSurface }}>
@@ -180,6 +182,10 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
 const styles = StyleSheet.create({
   dialog: {
     zIndex: 6000,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   textInput: {
     marginTop: 16,
