@@ -96,6 +96,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
   const [categoryCounts, setCategoryCounts] = useState<Record<number, number>>(
     {},
   );
+  const [libraryChangeKey, setLibraryChangeKey] = useState(0);
 
   const currentNovels = useMemo(() => {
     if (!categories.length) return [];
@@ -517,6 +518,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             pickAndImport={pickAndImport}
             navigation={navigation}
             isFocused={isFocused}
+            libraryChangeKey={libraryChangeKey}
           />
         </>
       );
@@ -531,6 +533,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       selectedNovelIds,
       styles.globalSearchBtn,
       theme,
+      libraryChangeKey,
     ],
   );
 
@@ -723,6 +726,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         visible={setCategoryModalVisible}
         onSuccess={() => {
           setSelectedNovelIds([]);
+          setLibraryChangeKey(prev => prev + 1); // Trigger library view reload
           refetchLibrary();
         }}
       />
@@ -777,6 +781,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
               onPress: () => {
                 removeNovelsFromLibrary(selectedNovelIds);
                 setSelectedNovelIds([]);
+                setLibraryChangeKey(prev => prev + 1); // Trigger library view reload
                 refetchLibrary();
               },
             },
