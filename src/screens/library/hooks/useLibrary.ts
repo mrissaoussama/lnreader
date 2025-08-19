@@ -63,10 +63,15 @@ export const useLibrary = (): UseLibraryReturnType => {
   }, [downloadedOnlyMode, filter, refreshCategories, searchText, sortOrder]);
 
   const novelInLibrary = useCallback(
-    (pluginId: string, novelPath: string) =>
-      library?.some(
-        novel => novel.pluginId === pluginId && novel.path === novelPath,
-      ),
+    (pluginId: string, novelPath: string) => {
+      const { normalizePath } = require('@utils/urlUtils');
+      const normalized = normalizePath(novelPath || '');
+      return library?.some(novel => {
+        if (novel.pluginId !== pluginId) return false;
+        const np = normalizePath(novel.path || '');
+        return np === normalized;
+      });
+    },
     [library],
   );
 

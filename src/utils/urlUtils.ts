@@ -39,3 +39,20 @@ export const extractPathFromUrl = (
   }
   return fullUrl.startsWith('/') ? fullUrl : `/${fullUrl}`;
 };
+
+/**
+ * Removes any leading and trailing slashes from a URL path
+ * @param path - The URL path
+ * @returns The normalized path
+ *
+ * @example
+ * normalizePath("/path/to/novel/") // "path/to/novel"
+ * normalizePath("path/to/novel") // "path/to/novel"
+ * normalizePath("/path/to/novel") // "path/to/novel"
+ */
+export const normalizePath = (path: string): string => {
+  if (!path) {
+    return '';
+  }
+  return path.replace(/^\/|\/$/g, '');
+};

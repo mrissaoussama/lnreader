@@ -164,6 +164,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         screen: 'Novel',
         params: {
           ...item,
+          path: require('@utils/urlUtils').normalizePath(item.path || ''),
           pluginId: pluginId,
         },
       }),
@@ -177,7 +178,8 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
 
   const getItemKey = useCallback(
     (item: NovelItem | NovelInfo) => {
-      return `${pluginId}-${item.path}-${item.name.replace(/\s+/g, '_')}`;
+      const np = require('@utils/urlUtils').normalizePath(item.path || '');
+      return `${pluginId}-${np}-${item.name.replace(/\s+/g, '_')}`;
     },
     [pluginId],
   );

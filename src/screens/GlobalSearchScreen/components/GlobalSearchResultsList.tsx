@@ -114,7 +114,11 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
             <FlatList
               horizontal
               contentContainerStyle={styles.novelsContainer}
-              keyExtractor={novelItem => item.plugin.id + '_' + novelItem.path}
+              keyExtractor={novelItem =>
+                item.plugin.id +
+                '_' +
+                require('@utils/urlUtils').normalizePath(novelItem.path || '')
+              }
               data={
                 hideInLibraryItems
                   ? item.novels.filter(
@@ -139,8 +143,20 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
                     globalSearch
                     item={novelItem}
                     libraryStatus={inLibrary}
-                    inActivity={inActivity[novelItem.path]}
-                    match={libraryMatches[novelItem.path]}
+                    inActivity={
+                      inActivity[
+                        require('@utils/urlUtils').normalizePath(
+                          novelItem.path || '',
+                        )
+                      ]
+                    }
+                    match={
+                      libraryMatches[
+                        require('@utils/urlUtils').normalizePath(
+                          novelItem.path || '',
+                        )
+                      ]
+                    }
                     onPress={() =>
                       navigateToNovel({
                         ...novelItem,
