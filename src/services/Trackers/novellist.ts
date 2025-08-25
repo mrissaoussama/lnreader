@@ -1,5 +1,6 @@
 import { Tracker, SearchResult, UserListStatus } from './types';
 import { fetchApi } from '../../plugins/helpers/fetch';
+import { MMKVStorage } from '@utils/mmkv/mmkv';
 import CookieManager from '@react-native-cookies/cookies';
 
 const NOVELLIST_BASE_URL =
@@ -20,7 +21,6 @@ const mapStatusFromNovellist = (status: string): UserListStatus => {
   }
 };
 
-// Function to extract access token from novellist cookie
 const extractTokenFromCookie = async (): Promise<string | null> => {
   try {
     const cookies = await CookieManager.get('https://www.novellist.co');
@@ -196,8 +196,7 @@ const handleSearch: Tracker['handleSearch'] = async (
           ...(item.alternate_titles || []),
         ].filter((title, index, arr) => title && arr.indexOf(title) === index),
         __trackerMeta: {
-          slug: item.slug,
-          novelSlug: item.slug,
+          novellistSlug: item.slug,
         },
       }));
     }
@@ -244,48 +243,35 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
 
     const data = await response.json();
 
-    // Try to fetch novel metadata for alternative titles
-    let novelMetadata = null;
+    let novelMetadata: any = null;
     try {
-      // Send OPTIONS request first (CORS preflight)
-      try {
-        await fetchApi(`${NOVELLIST_BASE_URL}/api/novels/${id}`, {
-          method: 'OPTIONS',
-          headers: {
-            'Accept': '*/*',
-            'Access-Control-Request-Method': 'GET',
-            'Access-Control-Request-Headers': 'authorization,content-type',
-            'Origin': 'https://www.novellist.co',
-            'Referer': 'https://www.novellist.co/',
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-          },
-        });
-      } catch (optionsError) {
-        // Ignore OPTIONS errors
-      }
-
-      const novelResponse = await fetchApi(
-        `${NOVELLIST_BASE_URL}/api/novels/${id}`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(authentication),
-        },
+      const wantAlt = MMKVStorage.getBoolean(
+        'novellist_fetch_alternative_titles',
       );
-
-      if (novelResponse.ok) {
-        novelMetadata = await novelResponse.json();
+      if (wantAlt) {
+        const metaRes = await fetchApi(
+          `${NOVELLIST_BASE_URL}/api/novels/${id}`,
+          {
+            method: 'GET',
+            headers: getAuthHeaders(authentication),
+          },
+        );
+        if (metaRes.ok) {
+          novelMetadata = await metaRes.json();
+        }
       }
-    } catch (metadataError) {
-      // If novel metadata fetch fails, continue without alternative titles
-    }
+    } catch {}
 
     const normalized = mapStatusFromNovellist(data.status);
+
+    let extractedVolume: number | undefined;
+    try {
+      const text = (data.note || '').toString().replace(/\r\n/g, '\n');
+      const volMatch = text.match(/total\s+volumes\s+read:\s*(\d+)/i);
+      if (volMatch && volMatch[1]) {
+        extractedVolume = parseInt(volMatch[1], 10);
+      }
+    } catch {}
     const listMeta = getNovellistListMeta(normalized);
 
     const result: any = {
@@ -297,22 +283,24 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       listName: listMeta.name,
     };
 
-    // Add alternative titles if novel metadata is available
+    if (typeof extractedVolume === 'number' && !isNaN(extractedVolume)) {
+      result.volume = extractedVolume;
+      result.progressDisplay = `V.${extractedVolume} Ch.${result.progress}`;
+    }
+
     if (novelMetadata) {
+      const nm: any = novelMetadata as any;
       result.alternativeTitles = [
-        ...(novelMetadata.english_title &&
-        novelMetadata.english_title !==
-          (novelMetadata.raw_title || novelMetadata.title)
-          ? [novelMetadata.english_title]
+        ...(nm?.english_title && nm.english_title !== (nm.raw_title || nm.title)
+          ? [nm.english_title]
           : []),
-        ...(novelMetadata.raw_title &&
-        novelMetadata.raw_title !== novelMetadata.english_title
-          ? [novelMetadata.raw_title]
+        ...(nm?.raw_title && nm.raw_title !== nm.english_title
+          ? [nm.raw_title]
           : []),
-        ...(novelMetadata.title &&
-        novelMetadata.title !== novelMetadata.english_title &&
-        novelMetadata.title !== novelMetadata.raw_title
-          ? [novelMetadata.title]
+        ...(nm?.title &&
+        nm.title !== nm.english_title &&
+        nm.title !== nm.raw_title
+          ? [nm.title]
           : []),
       ].filter((title, index, arr) => title && arr.indexOf(title) === index);
     }
@@ -358,7 +346,6 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
   }
 
   try {
-    // First, get current entry to preserve existing data
     let existingData = null;
     try {
       const currentResponse = await fetchApi(
@@ -371,34 +358,24 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
 
       if (currentResponse.ok) {
         existingData = await currentResponse.json();
-      } else {
       }
     } catch (e) {}
 
-    // Prepare the request body - always include existing values to preserve them
     const requestBody: any = {};
 
-    // Always include chapter_count (either new value or existing)
-    requestBody.chapter_count =
-      payload.progress !== undefined
-        ? payload.progress
-        : existingData?.chapter_count || 0;
+    if (
+      payload.progress !== undefined &&
+      payload.progress !== (existingData?.chapter_count || 0)
+    ) {
+      requestBody.chapter_count = payload.progress;
+    }
 
-    // Always include rating (either new value or existing)
-    if (payload.score !== undefined) {
+    if (
+      payload.score !== undefined &&
+      payload.score !== (existingData?.rating || undefined)
+    ) {
       requestBody.rating = payload.score;
-    } else if (existingData?.rating !== undefined) {
-      requestBody.rating = existingData.rating;
     }
-
-    // Always include note (either new value or existing)
-    if (payload.notes !== undefined) {
-      requestBody.note = payload.notes;
-    } else if (existingData?.note !== undefined) {
-      requestBody.note = existingData.note;
-    }
-
-    // Only include status if it's actually changing
     if (payload.status !== undefined) {
       const newMappedStatus = mapStatusToNovellist(payload.status);
       const currentMappedStatus = existingData?.status;
@@ -406,12 +383,86 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       if (newMappedStatus !== currentMappedStatus) {
         requestBody.status = newMappedStatus;
       }
-    } else if (existingData?.status) {
-      // Keep existing status if not being changed
-      requestBody.status = existingData.status;
     }
 
-    // If no fields to update, return current state
+    const mergeVolumeIntoNotes = (
+      baseNotes: string | undefined,
+      vol?: number,
+    ): string => {
+      const raw = (baseNotes || '').toString().replace(/\r\n/g, '\n');
+      if (typeof vol !== 'number' || isNaN(vol)) {
+        return raw;
+      }
+      const lines = raw.split('\n');
+      const pattern = /^\s*total\s+volumes\s+read:\s*\d+\s*$/i;
+      let found = false;
+      const updated = lines.map(line => {
+        if (pattern.test(line)) {
+          found = true;
+          return `total volumes read: ${vol}`;
+        }
+        return line;
+      });
+      if (!found) updated.push(`total volumes read: ${vol}`);
+      return updated.join('\n');
+    };
+
+    const desiredVolume =
+      typeof (payload as any).volume === 'number'
+        ? ((payload as any).volume as number)
+        : undefined;
+
+    let metaCurrentVolume: number | undefined;
+    try {
+      if (payload.metadata) {
+        const md = JSON.parse(payload.metadata as string);
+        if (typeof md?.currentVolume === 'number') {
+          metaCurrentVolume = md.currentVolume;
+        }
+      }
+    } catch {}
+
+    let noteCurrentVolume: number | undefined;
+    try {
+      const txt = (existingData?.note || '').toString().replace(/\r\n/g, '\n');
+      const m = txt.match(/total\s+volumes\s+read:\s*(\d+)/i);
+      if (m && m[1]) {
+        noteCurrentVolume = parseInt(m[1], 10);
+      }
+    } catch {}
+
+    const volumeUnchanged =
+      typeof desiredVolume === 'number' &&
+      (desiredVolume === metaCurrentVolume ||
+        desiredVolume === noteCurrentVolume);
+
+    const preserveExistingNotes =
+      MMKVStorage.getBoolean('novellist_preserve_user_notes') ?? true;
+
+    if (payload.notes !== undefined) {
+      const newNote = volumeUnchanged
+        ? mergeVolumeIntoNotes(payload.notes)
+        : mergeVolumeIntoNotes(payload.notes, desiredVolume);
+      if (newNote !== (existingData?.note || '')) {
+        requestBody.note = newNote;
+      }
+    } else if (typeof desiredVolume === 'number' && !volumeUnchanged) {
+      if (preserveExistingNotes) {
+        const newNote = mergeVolumeIntoNotes(
+          existingData?.note || '',
+          desiredVolume,
+        );
+        if (newNote !== (existingData?.note || '')) {
+          requestBody.note = newNote;
+        }
+      } else {
+        const volumeOnlyNote = `total volumes read: ${desiredVolume}`;
+        if (volumeOnlyNote !== (existingData?.note || '')) {
+          requestBody.note = volumeOnlyNote;
+        }
+      }
+    }
+
     if (Object.keys(requestBody).length === 0) {
       return {
         status: existingData?.status
@@ -422,11 +473,6 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
         notes: existingData?.note,
       };
     }
-
-    // Filter out undefined values from request body
-    const cleanedRequestBody = Object.fromEntries(
-      Object.entries(requestBody).filter(([_, value]) => value !== undefined),
-    );
     try {
       await fetchApi(
         `${NOVELLIST_BASE_URL}/api/users/current/reading-list/${id}`,
@@ -450,13 +496,12 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       );
     } catch (optionsError) {}
 
-    // Now send the actual PUT request
     const response = await fetchApi(
       `${NOVELLIST_BASE_URL}/api/users/current/reading-list/${id}`,
       {
         method: 'PUT',
         headers: getAuthHeaders(authentication),
-        body: JSON.stringify(cleanedRequestBody),
+        body: JSON.stringify(requestBody),
       },
     );
 
@@ -471,55 +516,11 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       );
     }
 
-    // Try to fetch novel metadata for alternative titles
-    let novelMetadata = null;
-    try {
-      // Send OPTIONS request first (CORS preflight)
-      try {
-        await fetchApi(`${NOVELLIST_BASE_URL}/api/novels/${id}`, {
-          method: 'OPTIONS',
-          headers: {
-            'Accept': '*/*',
-            'Access-Control-Request-Method': 'GET',
-            'Access-Control-Request-Headers': 'authorization,content-type',
-            'Origin': 'https://www.novellist.co',
-            'Referer': 'https://www.novellist.co/',
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-          },
-        });
-      } catch (optionsError) {
-        // Ignore OPTIONS errors
-      }
-
-      const novelResponse = await fetchApi(
-        `${NOVELLIST_BASE_URL}/api/novels/${id}`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(authentication),
-        },
-      );
-
-      if (novelResponse.ok) {
-        novelMetadata = await novelResponse.json();
-      }
-    } catch (metadataError) {
-      // If novel metadata fetch fails, continue without alternative titles
-    }
+    const novelMetadata: any = null;
 
     let normalizedStatus: UserListStatus = 'CURRENT';
-    if (
-      cleanedRequestBody.status &&
-      typeof cleanedRequestBody.status === 'string'
-    ) {
-      normalizedStatus = mapStatusFromNovellist(
-        cleanedRequestBody.status as string,
-      );
+    if (requestBody.status && typeof requestBody.status === 'string') {
+      normalizedStatus = mapStatusFromNovellist(requestBody.status as string);
     } else if (existingData?.status) {
       normalizedStatus = mapStatusFromNovellist(existingData.status);
     } else if (payload.status) {
@@ -535,27 +536,39 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
           ? payload.progress
           : existingData?.chapter_count || 0,
       score: payload.score ?? existingData?.rating,
-      notes: payload.notes ?? existingData?.note,
+      notes:
+        requestBody.note !== undefined ? requestBody.note : existingData?.note,
       listId: listMeta.id,
       listName: listMeta.name,
     };
 
-    // Add alternative titles if novel metadata is available
+    if (typeof (payload as any).volume === 'number') {
+      result.volume = (payload as any).volume;
+      result.progressDisplay = `V.${result.volume} Ch.${result.progress}`;
+    } else {
+      try {
+        const text = (result.notes || '').toString().replace(/\r\n/g, '\n');
+        const volMatch = text.match(/total\s+volumes\s+read:\s*(\d+)/i);
+        if (volMatch && volMatch[1]) {
+          result.volume = parseInt(volMatch[1], 10);
+          result.progressDisplay = `V.${result.volume} Ch.${result.progress}`;
+        }
+      } catch {}
+    }
+
     if (novelMetadata) {
+      const nm: any = novelMetadata as any;
       result.alternativeTitles = [
-        ...(novelMetadata.english_title &&
-        novelMetadata.english_title !==
-          (novelMetadata.raw_title || novelMetadata.title)
-          ? [novelMetadata.english_title]
+        ...(nm?.english_title && nm.english_title !== (nm.raw_title || nm.title)
+          ? [nm.english_title]
           : []),
-        ...(novelMetadata.raw_title &&
-        novelMetadata.raw_title !== novelMetadata.english_title
-          ? [novelMetadata.raw_title]
+        ...(nm?.raw_title && nm.raw_title !== nm.english_title
+          ? [nm.raw_title]
           : []),
-        ...(novelMetadata.title &&
-        novelMetadata.title !== novelMetadata.english_title &&
-        novelMetadata.title !== novelMetadata.raw_title
-          ? [novelMetadata.title]
+        ...(nm?.title &&
+        nm.title !== nm.english_title &&
+        nm.title !== nm.raw_title
+          ? [nm.title]
           : []),
       ].filter((title, index, arr) => title && arr.indexOf(title) === index);
     }
@@ -591,7 +604,6 @@ const addToReadingList: Tracker['addToReadingList'] = async (
   try {
     const headers = getAuthHeaders(authentication);
 
-    // First, try to get current reading list entry
     let existingData = null;
     try {
       const currentResponse = await fetchApi(
@@ -606,9 +618,6 @@ const addToReadingList: Tracker['addToReadingList'] = async (
         existingData = await currentResponse.json();
       }
     } catch (e) {}
-
-    // For new entries, send ONLY the status
-    // For existing entries, send the full payload
     const requestBody = existingData
       ? {
           status: listId,
@@ -642,8 +651,6 @@ const addToReadingList: Tracker['addToReadingList'] = async (
         },
       });
     } catch (optionsError) {}
-
-    // Send PUT request
     const response = await fetchApi(url, {
       method: 'PUT',
       headers,
@@ -669,20 +676,16 @@ const addToReadingList: Tracker['addToReadingList'] = async (
 // Helper function to decode JWT and extract username
 const getUsernameFromToken = (token: string): string | null => {
   try {
-    // JWT tokens have 3 parts separated by dots
     const parts = token.split('.');
     if (parts.length !== 3) return null;
 
-    // Decode the payload (second part)
     const payload = parts[1];
-    // Add padding if needed for base64 decoding
     const paddedPayload = payload + '='.repeat((4 - (payload.length % 4)) % 4);
     const decodedPayload = atob(
       paddedPayload.replace(/-/g, '+').replace(/_/g, '/'),
     );
     const parsedPayload = JSON.parse(decodedPayload);
 
-    // Extract fullName from user_metadata
     return parsedPayload.user_metadata?.fullName || null;
   } catch (error) {
     return null;
@@ -711,7 +714,6 @@ const getAllTrackedNovels = async (
     throw new Error('Could not extract username from Novellist token');
   }
 
-  // Visit the user's profile page to get the novels
   const url = `https://www.novellist.co/users/${username}`;
   const response = await fetchApi(url, {
     method: 'GET',
@@ -724,7 +726,6 @@ const getAllTrackedNovels = async (
 
   const html = await response.text();
 
-  // Extract the JSON data from the script tag
   const scriptRegex =
     /self\.__next_f\.push\(\[1,\s*"[^"]*\\"listNovels\\":\[([^\]]+)\]/;
   const match = html.match(scriptRegex);
@@ -734,7 +735,6 @@ const getAllTrackedNovels = async (
   }
 
   let jsonStr = match[1];
-  // Clean up the JSON string
   jsonStr = jsonStr
     .replace(/\\"/g, '"')
     .replace(/\\n/g, '\\n')
@@ -742,7 +742,6 @@ const getAllTrackedNovels = async (
 
   let novels: any[];
   try {
-    // The JSON might be incomplete, so we need to find the complete structure
     const fullJsonMatch = html.match(/"listNovels":\[([^\]]+)\]/);
     if (fullJsonMatch) {
       const cleanJson = fullJsonMatch[1]
@@ -771,7 +770,6 @@ const getAllTrackedNovels = async (
     if (item.novel) {
       let status: UserListStatus = 'CURRENT';
 
-      // Map Novellist status to our enum
       switch (item.status) {
         case 'IN_PROGRESS':
           status = 'CURRENT';
@@ -817,6 +815,7 @@ export const novellist: Tracker = {
     supportsMetadataCache: false,
     supportsBulkSync: true,
     hasAlternativeTitles: true,
+    supportsVolumes: true,
   },
   authenticate,
   handleSearch,
@@ -828,7 +827,7 @@ export const novellist: Tracker = {
   getEntryUrl: (track: any) => {
     try {
       const md = track?.metadata ? JSON.parse(track.metadata) : {};
-      const slug = md?.slug ?? md?.novelSlug;
+      const slug = md?.slug ?? md?.novellistSlug;
       if (slug) return `https://www.novellist.co/novels/${slug}`;
       const id = track?.sourceId ? String(track.sourceId) : undefined;
       if (id) return `https://www.novellist.co/novels/${id}`;

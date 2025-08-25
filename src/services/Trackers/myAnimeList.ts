@@ -131,12 +131,15 @@ const handleSearch = async (query, authentication, _options) => {
   }));
 };
 const updateUserListEntry = async (id, payload, authentication) => {
-  const body = {};
+  const body: any = {};
   if (payload.status) {
     body.status = mapStatusToMAL(payload.status);
   }
   if (payload.progress !== undefined) {
     body.num_chapters_read = payload.progress;
+  }
+  if ((payload as any).volume !== undefined) {
+    body.num_volumes_read = (payload as any).volume;
   }
   if (payload.score !== undefined) {
     body.score = payload.score;
@@ -167,11 +170,10 @@ const updateUserListEntry = async (id, payload, authentication) => {
   }
 
   const json = await response.json();
-
   const normalizedStatus = mapStatusFromMAL(json.status);
   const listMeta = getMALListMeta(normalizedStatus);
 
-  return {
+  const result: any = {
     status: normalizedStatus,
     progress: json.num_chapters_read || 0,
     score: json.score,
@@ -181,10 +183,16 @@ const updateUserListEntry = async (id, payload, authentication) => {
     listId: listMeta.id,
     listName: listMeta.name,
   };
+  const volRead = Number(json.num_volumes_read || 0);
+  if (volRead > 0) {
+    result.volume = volRead;
+    result.progressDisplay = `V.${volRead} Ch.${result.progress || 0}`;
+  }
+  return result;
 };
 const getUserListEntry = async (id, authentication) => {
   const headers = getHeaders(authentication.accessToken);
-  const url = `${MAL_API_URL}/manga/${id}?fields=my_list_status`;
+  const url = `${MAL_API_URL}/manga/${id}?fields=my_list_status,num_volumes`;
 
   const response = await fetch(url, {
     headers,
@@ -210,7 +218,7 @@ const getUserListEntry = async (id, authentication) => {
   const normalizedStatus = mapStatusFromMAL(entry.status);
   const listMeta = getMALListMeta(normalizedStatus);
 
-  const result = {
+  const result: any = {
     status: normalizedStatus,
     progress: entry.num_chapters_read || 0,
     score: entry.score,
@@ -220,6 +228,18 @@ const getUserListEntry = async (id, authentication) => {
     listId: listMeta.id,
     listName: listMeta.name,
   };
+
+  const volRead = Number(entry.num_volumes_read || 0);
+  const totalVolumes = Number(json.num_volumes || 0) || undefined;
+  if (volRead > 0) {
+    result.volume = volRead;
+  }
+  if (typeof totalVolumes === 'number') {
+    result.totalVolumes = totalVolumes;
+  }
+  if (volRead > 0) {
+    result.progressDisplay = `V.${volRead} Ch.${result.progress || 0}`;
+  }
 
   return result;
 };
@@ -360,10 +380,26 @@ const getAvailableReadingLists = async (_id, _authentication) => {
     },
   ];
 };
-const addToReadingList = async (id, listId, authentication) => {
-  const body = {
+const addToReadingList = async (
+  id: string | number,
+  listId: string,
+  authentication: any,
+) => {
+  const existingEntry = await getUserListEntry(id, authentication);
+
+  const body: any = {
     status: listId,
   };
+
+  if (existingEntry) {
+    if (existingEntry.progress !== undefined) {
+      body.num_chapters_read = existingEntry.progress;
+    }
+    if ((existingEntry as any).volume !== undefined) {
+      body.num_volumes_read = (existingEntry as any).volume;
+    }
+  }
+
   const response = await fetch(`${MAL_API_URL}/manga/${id}/my_list_status`, {
     method: 'PUT',
     headers: {
@@ -377,7 +413,7 @@ const addToReadingList = async (id, listId, authentication) => {
     throw new Error(`MAL API error: ${response.status} - ${errorText}`);
   }
 };
-const getAllTrackedNovels = async authentication => {
+const getAllTrackedNovels = async (authentication: any) => {
   const novels = [];
   let offset = 0;
   const limit = 1000;
@@ -408,8 +444,6 @@ const getAllTrackedNovels = async authentication => {
         });
       }
     }
-
-    // Check if there are more results
     hasMore = data.length === limit;
     offset += limit;
   }
@@ -425,6 +459,7 @@ export const myAnimeList = {
     supportsMetadataCache: false,
     supportsBulkSync: true,
     hasAlternativeTitles: true,
+    supportsVolumes: true,
   },
   authenticate,
   revalidate,

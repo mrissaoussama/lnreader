@@ -13,11 +13,14 @@ import {
 } from 'react-native-paper';
 import { ThemeColors } from '@theme/types';
 import { useTheme, useTracker, useAppSettings } from '@hooks/persisted';
+import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { trackers, TRACKER_SOURCES } from '@services/Trackers';
 import { TrackSource } from '@database/types/Track';
 import { showToast } from '@utils/showToast';
 import { deleteTracksBySource } from '@database/queries/TrackQueries';
+import { getString } from '@strings/translations';
 import MangaUpdatesLoginDialog from './components/MangaUpdatesLoginDialog';
+import { TrackerLogo } from '@services/Trackers/common/TrackerLogo';
 
 const TrackerSettingsScreen = ({ navigation }: any) => {
   const theme = useTheme();
@@ -36,6 +39,21 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
   const [deleteLinkedNovels, setDeleteLinkedNovels] = useState(true);
   const [mangaUpdatesLoginVisible, setMangaUpdatesLoginVisible] =
     useState(false);
+  const [nuAltTitles, setNuAltTitles] = useState(
+    MMKVStorage.getBoolean('novelupdates_fetch_alternative_titles') ?? false,
+  );
+  const [muAltTitles, setMuAltTitles] = useState(
+    MMKVStorage.getBoolean('mangaupdates_fetch_alternative_titles') ?? false,
+  );
+  const [nlAltTitles, setNlAltTitles] = useState(
+    MMKVStorage.getBoolean('novellist_fetch_alternative_titles') ?? false,
+  );
+  const [nlPreserveNotes, setNlPreserveNotes] = useState(
+    MMKVStorage.getBoolean('novellist_preserve_user_notes') ?? true,
+  );
+  const [nuMarkChapters, setNuMarkChapters] = useState(
+    MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false,
+  );
 
   const handleAutoSyncToggle = (value: boolean) => {
     setAppSettings({ autoSyncTracker: value });
@@ -86,7 +104,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
         return;
       }
 
-      // Handle manual authentication trackers (NovelUpdates and Novellist)
       if (
         source === TRACKER_SOURCES.NOVEL_UPDATES ||
         source === TRACKER_SOURCES.NOVELLIST
@@ -105,8 +122,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
           isNovel: false,
         });
 
-        // Set a temporary authentication to mark as "logged in"
-        // User will need to complete login manually in webview
         const authResult = await tracker.authenticate();
         setTracker(source, authResult);
         showToast(
@@ -120,7 +135,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
         return;
       }
 
-      // Handle OAuth trackers (AniList, MyAnimeList, etc.)
       showToast(`Opening ${source} authentication...`);
       const authResult = await tracker.authenticate();
 
@@ -174,10 +188,8 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
 
     try {
       if (deleteLinkedNovels) {
-        // Delete all tracks for this source
         await deleteTracksBySource(selectedTrackerToLogout);
       }
-      // Remove tracker authentication
       removeTracker(selectedTrackerToLogout);
 
       const message = deleteLinkedNovels
@@ -222,9 +234,12 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
       <Card style={styles.trackerCard}>
         <Card.Content>
           <View style={styles.trackerHeader}>
-            <Text style={[styles.trackerTitle, { color: theme.onSurface }]}>
-              {trackerImpl.name}
-            </Text>
+            <View style={styles.trackerTitleRow}>
+              <TrackerLogo source={item} size={26} />
+              <Text style={[styles.trackerTitle, { color: theme.onSurface }]}>
+                {trackerImpl.name}
+              </Text>
+            </View>
             {loggedIn && (
               <Chip
                 icon="check-circle"
@@ -244,6 +259,151 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
 
           {loggedIn ? (
             <View style={styles.loggedInContainer}>
+              {item === TRACKER_SOURCES.NOVEL_UPDATES && (
+                <>
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text
+                        style={[
+                          styles.settingTitle,
+                          { color: theme.onSurface },
+                        ]}
+                      >
+                        Fetch Alternative Titles
+                      </Text>
+                      <Text
+                        style={[
+                          styles.settingSubtitle,
+                          { color: theme.onSurfaceVariant },
+                        ]}
+                      >
+                        May send one extra request per entry
+                      </Text>
+                    </View>
+                    <Switch
+                      value={nuAltTitles}
+                      onValueChange={v => {
+                        setNuAltTitles(v);
+                        MMKVStorage.set(
+                          'novelupdates_fetch_alternative_titles',
+                          v,
+                        );
+                      }}
+                    />
+                  </View>
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text
+                        style={[
+                          styles.settingTitle,
+                          { color: theme.onSurface },
+                        ]}
+                      >
+                        {getString('trackingScreen.markChaptersAsRead')}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.settingSubtitle,
+                          { color: theme.onSurfaceVariant },
+                        ]}
+                      >
+                        {getString('trackingScreen.markChaptersAsReadDesc')}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={nuMarkChapters}
+                      onValueChange={v => {
+                        setNuMarkChapters(v);
+                        MMKVStorage.set(
+                          'novelupdates_mark_chapters_enabled',
+                          v,
+                        );
+                      }}
+                    />
+                  </View>
+                </>
+              )}
+              {item === TRACKER_SOURCES.MANGAUPDATES && (
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Text
+                      style={[styles.settingTitle, { color: theme.onSurface }]}
+                    >
+                      Fetch Alternative Titles
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: theme.onSurfaceVariant },
+                      ]}
+                    >
+                      Sends one extra request to MangaUpdates
+                    </Text>
+                  </View>
+                  <Switch
+                    value={muAltTitles}
+                    onValueChange={v => {
+                      setMuAltTitles(v);
+                      MMKVStorage.set(
+                        'mangaupdates_fetch_alternative_titles',
+                        v,
+                      );
+                    }}
+                  />
+                </View>
+              )}
+              {item === TRACKER_SOURCES.NOVELLIST && (
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Text
+                      style={[styles.settingTitle, { color: theme.onSurface }]}
+                    >
+                      Fetch Alternative Titles
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: theme.onSurfaceVariant },
+                      ]}
+                    >
+                      Attempts to include alternative titles (may add a request)
+                    </Text>
+                  </View>
+                  <Switch
+                    value={nlAltTitles}
+                    onValueChange={v => {
+                      setNlAltTitles(v);
+                      MMKVStorage.set('novellist_fetch_alternative_titles', v);
+                    }}
+                  />
+                </View>
+              )}
+              {item === TRACKER_SOURCES.NOVELLIST && (
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Text
+                      style={[styles.settingTitle, { color: theme.onSurface }]}
+                    >
+                      Preserve User Notes
+                    </Text>
+                    <Text
+                      style={[
+                        styles.settingSubtitle,
+                        { color: theme.onSurfaceVariant },
+                      ]}
+                    >
+                      Keep existing notes when updating volumes (recommended)
+                    </Text>
+                  </View>
+                  <Switch
+                    value={nlPreserveNotes}
+                    onValueChange={v => {
+                      setNlPreserveNotes(v);
+                      MMKVStorage.set('novellist_preserve_user_notes', v);
+                    }}
+                  />
+                </View>
+              )}
               {item === TRACKER_SOURCES.NOVELLIST && (
                 <Button
                   mode="text"
@@ -252,16 +412,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                   compact
                 >
                   Refresh Auth
-                </Button>
-              )}
-              {item === TRACKER_SOURCES.NOVEL_UPDATES && (
-                <Button
-                  mode="text"
-                  onPress={() => navigation.navigate('NovelUpdatesSettings')}
-                  style={styles.button}
-                  compact
-                >
-                  Settings
                 </Button>
               )}
               <Button
@@ -417,8 +567,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
         </Card.Content>
       </Card>
 
-      {/* Novel Updates specific settings now integrated into tracker card above */}
-
       <FlatList
         data={Object.keys(trackers) as TrackSource[]}
         renderItem={renderItem}
@@ -558,6 +706,14 @@ const createStyles = (theme: ThemeColors) =>
     trackerTitle: {
       fontSize: 18,
       fontWeight: 'bold',
+    },
+    trackerTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    sectionHeading: {
+      marginBottom: 8,
     },
     instructions: {
       fontSize: 14,

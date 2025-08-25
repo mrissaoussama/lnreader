@@ -632,12 +632,15 @@
   "trackingScreen": {
     "logOutMessage": "Log out from %{name}?",
     "revalidate": "Revalidate",
-    "services": "Services"
+    "services": "Services",
+    "markChaptersAsRead": "Mark Chapters as Read",
+    "markChaptersAsReadDesc": "Automatically mark chapters on Novel Updates when updating progress. Enabling this may slow down syncing. Marking may or may not work depending on the novel."
   },
   "trackingDialog": {
     "updateAllTrackers": "Update All Trackers",
     "targetProgress": "Target Progress",
     "setProgress": "Set Progress",
+  "list": "List",
     "highest": "Highest",
     "chapters": "chapters",
     "leaveEmptyForHighest": "Leave empty to use the highest progress automatically",

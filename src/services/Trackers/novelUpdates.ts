@@ -15,7 +15,6 @@ import { getTotalReadChaptersCount } from '@database/queries/ChapterQueries';
 import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
 
 const NOVEL_UPDATES_BASE_URL = 'https://www.novelupdates.com';
-const READING_LISTS_CACHE_KEY = 'novelupdates_reading_lists';
 
 const cleanJsonResponse = (rawText: string): any => {
   try {
@@ -442,7 +441,6 @@ const handleSearch: Tracker['handleSearch'] = async (
       const titleElement = $(element).find('.search_title a');
       const title = titleElement.text().trim();
       const link = titleElement.attr('href');
-      // Extract numeric ID from the span with sid prefix (for API requests)
       const sidSpan = $(element).find('span[id^="sid"]');
       const sidId = sidSpan.attr('id');
       let numericId = '';
@@ -454,33 +452,28 @@ const handleSearch: Tracker['handleSearch'] = async (
         }
       }
 
-      // Extract slug from URL (for page navigation)
       let slug = '';
       if (link) {
         const slugMatch = link.match(/series\/([^/]+)\/?/);
         slug = slugMatch ? slugMatch[1] : '';
       }
 
-      // Use slug as ID for search results (needed for getUserListEntry)
       const id = slug || numericId;
 
       const coverElement = $(element).find('.search_img_nu img');
       const coverImage = coverElement.attr('src');
 
-      // Get description - try multiple selectors as fallbacks
-      let descContainer = $(element).find('.search_body_nu'); // Primary selector
+      let descContainer = $(element).find('.search_body_nu');
       if (!descContainer.length) {
-        descContainer = $(element).find('div[style*="padding-top:5px"]'); // Fallback 1
+        descContainer = $(element).find('div[style*="padding-top:5px"]');
       }
       if (!descContainer.length) {
-        descContainer = $(element).find('div[style*="font-size: 14px"]'); // Fallback 2
+        descContainer = $(element).find('div[style*="font-size: 14px"]');
       }
       if (!descContainer.length) {
-        // Fallback 3: Find div containing .testhide (description with hidden content)
         descContainer = $(element).find('div:has(.testhide)');
       }
       if (!descContainer.length) {
-        // Fallback 4: Last div in the search result (usually contains description)
         descContainer = $(element).find('div').last();
       }
 
@@ -494,7 +487,6 @@ const handleSearch: Tracker['handleSearch'] = async (
         if (hiddenText) {
           const visibleText = fullText.replace(hiddenText, '').trim();
 
-          // Combine visible and hidden, cleaning up formatting
           description = (visibleText + ' ' + hiddenText)
             .replace(/\.\.\.\s*more>>/g, '')
             .replace(/<<less/g, '')
@@ -505,32 +497,15 @@ const handleSearch: Tracker['handleSearch'] = async (
         }
       }
 
-      const genres: string[] = [];
-      $(element)
-        .find('.search_genre a')
-        .each((_, genreLink) => {
-          const genreText = $(genreLink).text().trim();
-          if (genreText) {
-            genres.push(genreText);
-          }
-        });
-
       if (title && id) {
-        const result: SearchResult = {
+        results.push({
           id,
           title,
           coverImage: coverImage?.startsWith('http')
             ? coverImage
             : `${NOVEL_UPDATES_BASE_URL}${coverImage}`,
-          description,
-          genres: genres.length > 0 ? genres : undefined,
-          __trackerMeta: {
-            slug,
-            novelId: numericId,
-          },
-        };
-
-        results.push(result);
+          description: description,
+        });
       }
     });
 
@@ -575,7 +550,6 @@ const getAlternativeTitles = (loadedCheerio: CheerioAPI): string[] => {
     return [];
   }
 
-  // Split by <br> tags and clean up the titles
   const titles = htmlContent
     .split(/<br\s*\/?>/gi)
     .map(title => title.replace(/<[^>]*>/g, '').trim())
@@ -825,7 +799,6 @@ const getAvailableReadingLists = (
 ): Array<{ id: string; name: string }> => {
   const menuLists: Array<{ id: string; name: string }> = [];
   const menu = loadedCheerio('div#cssmenu');
-
   if (menu.length) {
     menu.find('li a').each((_, link) => {
       const $link = loadedCheerio(link);
@@ -866,7 +839,6 @@ const getAvailableReadingLists = (
       }
     });
   }
-
   return selectLists;
 };
 
@@ -891,7 +863,8 @@ const addToReadingList = async (
 
 const updateTrackingInNotes = (
   notes: string,
-  totalChaptersRead: number,
+  totalChaptersRead?: number,
+  totalVolumesRead?: number,
 ): string => {
   let cleanText = '';
 
@@ -918,18 +891,29 @@ const updateTrackingInNotes = (
       .trim();
   }
 
-  const chapterPattern = /total\s+chapters\s+read:\s*\d+/i;
-  const replacement = `total chapters read: ${totalChaptersRead}`;
+  let updatedText = cleanText.trim();
 
-  let updatedText = '';
-
-  if (chapterPattern.test(cleanText)) {
-    updatedText = cleanText.replace(chapterPattern, replacement);
-  } else {
-    if (cleanText.trim()) {
-      updatedText = cleanText.trim() + '\n' + replacement;
+  if (typeof totalChaptersRead === 'number' && !isNaN(totalChaptersRead)) {
+    const chapterPattern = /total\s+chapters\s+read:\s*\d+/i;
+    const replacement = `total chapters read: ${totalChaptersRead}`;
+    if (chapterPattern.test(updatedText)) {
+      updatedText = updatedText.replace(chapterPattern, replacement);
     } else {
-      updatedText = replacement;
+      updatedText = updatedText
+        ? `${updatedText}\n${replacement}`
+        : replacement;
+    }
+  }
+
+  if (typeof totalVolumesRead === 'number' && !isNaN(totalVolumesRead)) {
+    const volumePattern = /total\s+volumes\s+read:\s*\d+/i;
+    const volReplacement = `total volumes read: ${totalVolumesRead}`;
+    if (volumePattern.test(updatedText)) {
+      updatedText = updatedText.replace(volumePattern, volReplacement);
+    } else {
+      updatedText = updatedText
+        ? `${updatedText}\n${volReplacement}`
+        : volReplacement;
     }
   }
 
@@ -948,28 +932,12 @@ const getAvailableReadingListsForNovel: Tracker['getAvailableReadingLists'] =
       throw new Error('Not authenticated');
     }
 
-    try {
-      const cachedLists = MMKVStorage.getString(READING_LISTS_CACHE_KEY);
-      if (cachedLists) {
-        const parsed = JSON.parse(cachedLists);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (error) {}
-
     const url = `${NOVEL_UPDATES_BASE_URL}/reading-list/`;
     const result = await fetchApi(url);
     const body = await result.text();
     const loadedCheerio = load(body);
 
     const lists = getAvailableReadingLists(loadedCheerio);
-
-    if (lists.length > 0) {
-      try {
-        MMKVStorage.set(READING_LISTS_CACHE_KEY, JSON.stringify(lists));
-      } catch (error) {}
-    }
 
     return lists;
   };
@@ -1007,7 +975,14 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
 
   try {
     novelId = getNovelId(loadedCheerio);
-    alternativeTitles = getAlternativeTitles(loadedCheerio);
+    try {
+      const fetchAlt = MMKVStorage.getBoolean(
+        'novelupdates_fetch_alternative_titles',
+      );
+      alternativeTitles = fetchAlt ? getAlternativeTitles(loadedCheerio) : [];
+    } catch (_) {
+      alternativeTitles = [];
+    }
     const listValue = getReadingListStatus(loadedCheerio);
 
     if (!listValue) {
@@ -1038,6 +1013,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
     } catch (err) {}
 
     let notesProgress = 0;
+    let notesVolumes = 0;
     if (notesData && notesData.notes) {
       let actualNotes = notesData.notes;
       try {
@@ -1063,28 +1039,31 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       if (match && match[1]) {
         notesProgress = parseInt(match[1], 10);
       }
+      const volumePattern = /total\s+volumes\s+read:\s*(\d+)/i;
+      const matchVol = cleanText.match(volumePattern);
+      if (matchVol && matchVol[1]) {
+        notesVolumes = parseInt(matchVol[1], 10);
+      }
     }
 
     let markedProgress = 0;
     let lastMarkedChapterId: string | undefined;
-
-    try {
-      const markedData = await getMarkedChapterProgress(novelId);
-      markedProgress = markedData.progress;
-      lastMarkedChapterId = markedData.lastMarkedChapterId;
-    } catch (error) {}
-
-    const finalProgress = Math.max(notesProgress, markedProgress);
-
-    let detailedProgress;
-    try {
-      detailedProgress = await getDetailedProgress(novelId);
-    } catch (error) {
-      detailedProgress = {
-        notesProgress,
-        markedProgress,
-        progressDisplay: `notes:${notesProgress}, marked:${markedProgress}`,
-      };
+    const markingEnabled =
+      MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
+    let finalProgress = notesProgress;
+    let detailedProgress: any = {
+      notesProgress,
+      markedProgress: 0,
+      progressDisplay: `${notesProgress}`,
+    };
+    if (markingEnabled) {
+      try {
+        const dp = await getDetailedProgress(novelId);
+        markedProgress = dp.markedProgress;
+        lastMarkedChapterId = dp.lastMarkedChapterId;
+        finalProgress = dp.finalProgress;
+        detailedProgress = dp;
+      } catch (e) {}
     }
 
     const metadata = {
@@ -1095,16 +1074,20 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       notesProgress: notesProgress,
       markedProgress: markedProgress,
       finalProgress: finalProgress,
+      ...(notesVolumes ? { currentVolume: notesVolumes } : {}),
     };
 
     return {
       status: statusMapping[listValue] || 'CURRENT',
       progress: Math.max(finalProgress, 0),
+      ...(notesVolumes ? { volume: notesVolumes } : {}),
       score: 0,
       notes: notesData.notes || '',
       alternativeTitles,
       metadata: JSON.stringify(metadata),
-      progressDisplay: detailedProgress.progressDisplay,
+      progressDisplay:
+        (notesVolumes ? `V.${notesVolumes} ` : '') +
+        detailedProgress.progressDisplay,
     };
   } catch (error) {
     return {
@@ -1131,7 +1114,6 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
   let alternativeTitles: string[] = [];
   let slug = id;
 
-  // Check existing metadata first to avoid unnecessary requests
   if (payload.metadata) {
     try {
       const metadata = JSON.parse(payload.metadata);
@@ -1166,7 +1148,7 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     await fetchApi(updateUrl);
   }
 
-  if (payload.progress !== undefined) {
+  if (payload.progress !== undefined || payload.volume !== undefined) {
     const getNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
     const getNotesBody = `action=wi_notestagsfic&strSID=${novelId}`;
 
@@ -1210,11 +1192,19 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
       existingNotes = '';
     }
 
-    const totalChaptersRead = payload.progress || 0;
+    const totalChaptersRead =
+      typeof payload.progress === 'number' ? payload.progress : undefined;
+    const totalVolumesRead =
+      typeof (payload as any).volume === 'number'
+        ? ((payload as any).volume as number)
+        : undefined;
 
+    const baseNotes =
+      typeof payload.notes === 'string' ? payload.notes : existingNotes;
     const updatedNotes = updateTrackingInNotes(
-      existingNotes,
+      baseNotes,
       totalChaptersRead,
+      totalVolumesRead,
     );
 
     const updateNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
@@ -1233,28 +1223,12 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     });
   }
 
-  if (payload.notes !== undefined) {
-    const updateNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
-    const formBody = new URLSearchParams({
-      action: 'wi_rlnotes',
-      strSID: novelId,
-      strNotes: payload.notes,
-    });
-
-    await fetchApi(updateNotesUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formBody.toString(),
-    });
-  }
-
   if (payload.progress !== undefined && payload.progress > 0) {
     try {
       const markChaptersEnabled =
         MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
 
       if (markChaptersEnabled) {
-        // Fire-and-forget
         markChaptersUpToProgress(novelId, payload.progress, auth).catch(
           () => {},
         );
@@ -1262,18 +1236,27 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     } catch (error) {}
   }
 
-  const result = {
+  const result: any = {
     status: payload.status || 'CURRENT',
     progress: payload.progress || 1,
     score: payload.score,
     notes: payload.notes,
     alternativeTitles,
     metadata: JSON.stringify({ novelId, alternativeTitles, slug }),
-    novelPluginId: payload.novelPluginId,
-    novelPath: payload.novelPath,
-    chapterName: payload.chapterName,
-    chapterPath: payload.chapterPath,
+    novelPluginId: (payload as any).novelPluginId,
+    novelPath: (payload as any).novelPath,
+    chapterName: (payload as any).chapterName,
+    chapterPath: (payload as any).chapterPath,
   };
+
+  if (typeof (payload as any).volume === 'number') {
+    try {
+      const md = result.metadata ? JSON.parse(result.metadata) : {};
+      md.currentVolume = (payload as any).volume;
+      result.metadata = JSON.stringify(md);
+    } catch {}
+    result.volume = (payload as any).volume;
+  }
 
   return result;
 };
@@ -1288,6 +1271,7 @@ export const novelUpdates: Tracker = {
     supportsMetadataCache: true,
     supportsBulkSync: true,
     hasAlternativeTitles: true,
+    supportsVolumes: true,
   },
   authenticate,
   handleSearch,

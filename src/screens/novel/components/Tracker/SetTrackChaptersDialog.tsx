@@ -5,23 +5,33 @@ import {
   TextInput,
   Button as PaperButton,
 } from 'react-native-paper';
-import { Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet, View } from 'react-native';
 import { ThemeColors } from '@theme/types';
 import { Track } from '@database/types/Track';
 import { getString } from '@strings/translations';
+import { TrackerLogo } from '@services/Trackers/common/TrackerLogo';
+import { trackModalStyles } from './TrackModal.styles';
+import ReadingListSelector from './shared/ReadingListSelector';
+import ReadingListModal from './shared/ReadingListModal';
 
 interface SetTrackChaptersDialogProps {
   track: Track;
   visible: boolean;
   hideDialog: () => void;
-  onSubmit: (track: Track, newChapter: number, forceUpdate: boolean) => void;
+  onSubmit: (
+    track: Track,
+    newChapter: number,
+    forceUpdate: boolean,
+    newVolume?: number,
+  ) => void;
   theme: ThemeColors;
   trackerName?: string;
-  // New: optional reading list/status selector support
-  allowListChange?: boolean;
   availableLists?: Array<{ id: string; name: string }>;
   selectedListId?: string | null;
   onChangeList?: (listId: string) => void;
+  supportsVolumes?: boolean;
+  onRefreshLists?: () => void;
+  isRefreshingLists?: boolean;
 }
 
 const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
@@ -31,53 +41,77 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
   onSubmit,
   theme,
   trackerName,
-  allowListChange,
   availableLists,
   selectedListId,
   onChangeList,
+  supportsVolumes,
+  onRefreshLists,
+  isRefreshingLists,
 }) => {
   const [chapters, setChapters] = useState('0');
-  const [forceUpdate, setForceUpdate] = useState(true);
-  const [showListPicker, setShowListPicker] = useState(false);
+  const [forceUpdate, _setForceUpdate] = useState(true);
+  const [volumes, setVolumes] = useState('');
+  const [showReadingListModal, setShowReadingListModal] = useState(false);
 
-  const selectedListName = useMemo(() => {
-    if (!availableLists || !selectedListId) return undefined;
-    return availableLists.find(l => l.id === selectedListId)?.name;
-  }, [availableLists, selectedListId]);
+  const volumeSuffix = useMemo(() => {
+    try {
+      const md = track?.metadata ? JSON.parse(track.metadata) : {};
+      const cv =
+        typeof md.currentVolume === 'number' ? md.currentVolume : undefined;
+      const mv = typeof md.maxVolume === 'number' ? md.maxVolume : undefined;
+      if (typeof cv === 'number') {
+        return `V.${cv}${typeof mv === 'number' ? `/${mv}` : ''}`;
+      }
+    } catch {}
+    return '';
+  }, [track]);
 
   const handleDismiss = () => {
-    setChapters('0');
-    setForceUpdate(true);
     hideDialog();
   };
 
   const handleSubmit = () => {
     const chapterNum = parseInt(chapters, 10);
+    const volumeNum = volumes.trim() === '' ? undefined : parseInt(volumes, 10);
     if (!isNaN(chapterNum) && chapterNum >= 0 && track) {
-      onSubmit(track, chapterNum, forceUpdate);
+      onSubmit(
+        track,
+        chapterNum,
+        forceUpdate,
+        !isNaN(Number(volumeNum)) ? volumeNum : undefined,
+      );
       handleDismiss();
     }
   };
 
-  // Reset chapters when track changes or dialog opens
   React.useEffect(() => {
     if (visible && track && typeof track === 'object') {
-      // Add safety checks for track properties
       const lastChapterRead = track.lastChapterRead;
       const chaptersValue =
         typeof lastChapterRead === 'number' && !isNaN(lastChapterRead)
           ? lastChapterRead
           : 0;
       setChapters(chaptersValue.toString());
+
+      try {
+        const md = track?.metadata ? JSON.parse(track.metadata) : {};
+        const cv =
+          typeof md.currentVolume === 'number' ? md.currentVolume : undefined;
+        if (typeof cv === 'number') {
+          setVolumes(String(cv));
+        } else {
+          setVolumes('');
+        }
+      } catch {
+        setVolumes('');
+      }
     }
   }, [visible, track]);
 
-  // Don't render if track is not available or missing essential properties
   if (!track || typeof track !== 'object') {
     return null;
   }
 
-  // Safely extract track properties with fallbacks
   const trackTitle = track.title || 'Unknown Novel';
   const currentProgress =
     typeof track.lastChapterRead === 'number' ? track.lastChapterRead : 0;
@@ -87,44 +121,64 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
       <Dialog
         visible={visible}
         onDismiss={handleDismiss}
-        style={[styles.dialog, { backgroundColor: theme.surface }]}
+        style={[
+          trackModalStyles.sharedDialogContainer,
+          { backgroundColor: theme.surface2 || theme.surface },
+        ]}
       >
         <Dialog.Title>
-          <Text style={[{ color: theme.onSurface }, styles.title]}>
-            {trackerName}: {trackTitle}
-          </Text>
+          <View style={styles.titleRow}>
+            {trackerName ? (
+              <TrackerLogo source={trackerName as any} size={24} />
+            ) : null}
+            <Text style={[styles.titleText, { color: theme.onSurface }]}>
+              {trackerName}: {trackTitle}
+            </Text>
+          </View>
         </Dialog.Title>
         <Dialog.Content>
-          <Text style={{ color: theme.onSurface }}>
-            {`Current: ${currentProgress}`}
+          <ReadingListSelector
+            theme={theme}
+            label={getString('trackingDialog.list' as any)}
+            availableLists={availableLists || []}
+            selectedListId={selectedListId || null}
+            onSelect={id => onChangeList?.(id)}
+            onRefresh={onRefreshLists}
+            refreshing={isRefreshingLists}
+            compact
+            onPressModal={() => setShowReadingListModal(true)}
+          />
+          <Text
+            style={[styles.currentProgressText, { color: theme.onSurface }]}
+          >
+            {`Current: ${volumeSuffix} Ch.${currentProgress}`}
           </Text>
-          {allowListChange &&
-          Array.isArray(availableLists) &&
-          availableLists.length > 0 ? (
-            <>
-              <Text style={[styles.sectionLabel, { color: theme.onSurface }]}>
-                List/Status
-              </Text>
-              <Text
-                onPress={() => setShowListPicker(true)}
-                style={[styles.listPickerLink, { color: theme.primary }]}
-              >
-                {selectedListName || 'Select...'}
-              </Text>
-            </>
-          ) : null}
+          {supportsVolumes && (
+            <TextInput
+              label="Volumes"
+              value={volumes}
+              onChangeText={setVolumes}
+              keyboardType="numeric"
+              mode="outlined"
+              style={[styles.input, { backgroundColor: theme.surface }]}
+              selectTextOnFocus={true}
+            />
+          )}
           <TextInput
             label="Chapters"
             value={chapters}
             onChangeText={setChapters}
             keyboardType="numeric"
             mode="outlined"
-            style={[styles.textInput, { backgroundColor: theme.surface }]}
+            style={[styles.input, { backgroundColor: theme.surface }]}
             selectTextOnFocus={true}
           />
         </Dialog.Content>
-        <Dialog.Actions>
-          <PaperButton onPress={handleDismiss} textColor={theme.onSurface}>
+        <Dialog.Actions style={styles.actions}>
+          <PaperButton
+            onPress={handleDismiss}
+            theme={{ colors: { primary: theme.onSurface } }}
+          >
             {getString('common.cancel')}
           </PaperButton>
           <PaperButton onPress={handleSubmit} textColor={theme.primary}>
@@ -132,76 +186,29 @@ const SetTrackChaptersDialog: React.FC<SetTrackChaptersDialogProps> = ({
           </PaperButton>
         </Dialog.Actions>
       </Dialog>
-
-      {/* Reading list picker inside dialog */}
-      {allowListChange && showListPicker ? (
-        <Dialog
-          visible={showListPicker}
-          onDismiss={() => setShowListPicker(false)}
-          style={[styles.dialog, { backgroundColor: theme.surface }]}
-        >
-          <Dialog.Title style={{ color: theme.onSurface }}>
-            Select List/Status
-          </Dialog.Title>
-          <Dialog.Content>
-            {availableLists?.map(list => (
-              <Text
-                key={list.id}
-                onPress={() => {
-                  onChangeList?.(list.id);
-                  setShowListPicker(false);
-                }}
-                style={[
-                  styles.listItem,
-                  {
-                    color:
-                      selectedListId === list.id
-                        ? theme.primary
-                        : theme.onSurface,
-                  },
-                ]}
-              >
-                {list.name}
-              </Text>
-            ))}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <PaperButton
-              onPress={() => setShowListPicker(false)}
-              textColor={theme.onSurface}
-            >
-              {getString('common.cancel')}
-            </PaperButton>
-          </Dialog.Actions>
-        </Dialog>
-      ) : null}
+      <ReadingListModal
+        visible={showReadingListModal}
+        onDismiss={() => setShowReadingListModal(false)}
+        theme={theme}
+        lists={availableLists || []}
+        selectedList={
+          availableLists?.find(l => l.id === selectedListId) || null
+        }
+        onSelectList={list => {
+          onChangeList?.(list.id);
+        }}
+        title="Select a reading list"
+      />
     </Portal>
   );
 };
 
 const styles = StyleSheet.create({
-  dialog: {
-    zIndex: 6000,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  textInput: {
-    marginTop: 16,
-  },
-  sectionLabel: {
-    marginTop: 12,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  listPickerLink: {
-    marginTop: 4,
-    textDecorationLine: 'underline',
-  },
-  listItem: {
-    paddingVertical: 8,
-  },
+  actions: { justifyContent: 'space-between' },
+  titleRow: { flexDirection: 'row', alignItems: 'center' },
+  titleText: { fontSize: 18, fontWeight: 'bold' },
+  currentProgressText: { marginTop: 12 },
+  input: { marginTop: 16 },
 });
 
 export default SetTrackChaptersDialog;

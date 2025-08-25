@@ -13,6 +13,9 @@ export const TRACKER_SOURCES = {
   MANGAUPDATES: 'MangaUpdates' as const,
 } as const;
 
+export type TrackSource =
+  (typeof TRACKER_SOURCES)[keyof typeof TRACKER_SOURCES];
+
 export type TrackerCapabilities = {
   /** Whether this tracker supports dynamic reading lists that can be refreshed */
   hasDynamicLists: boolean;
@@ -28,6 +31,8 @@ export type TrackerCapabilities = {
   supportsBulkSync: boolean;
   /** Whether this tracker provides alternative titles in search results */
   hasAlternativeTitles: boolean;
+  /** Whether this tracker supports tracking volumes in addition to chapters */
+  supportsVolumes?: boolean;
 };
 
 /**
@@ -54,7 +59,7 @@ export type AuthenticationResult<Meta = Record<string, any>> = {
   meta?: Meta;
 };
 
-export type SearchResult = {
+export interface SearchResult {
   /** The tracker's unique ID of this entry */
   id: string | number;
   /** The tracker's title of this entry */
@@ -65,6 +70,8 @@ export type SearchResult = {
   coverImage?: string;
   /** The total number of chapters for this entry which may not be available */
   totalChapters?: number;
+  /** The total number of volumes for this entry which may not be available */
+  totalVolumes?: number;
   /** Description or synopsis of the entry */
   description?: string;
   /** Publication status */
@@ -75,13 +82,19 @@ export type SearchResult = {
   year?: number;
   /** Genres */
   genres?: string[];
-};
+  /** Optional tracker-specific metadata attached by implementation */
+  __trackerMeta?: Record<string, any>;
+}
 
 export type UserListEntry = {
   /** The user's current reading status */
   status: UserListStatus;
   /** The user's current chapter progress */
   progress: number;
+  /** The user's current volume progress, if supported */
+  volume?: number;
+  /** The total number of volumes, if available */
+  totalVolumes?: number;
   /** Optional reading list identifier when tracker provides it */
   listId?: string;
   /** Optional human-friendly reading list name when tracker provides it */
