@@ -20,6 +20,7 @@ class MangaUpdates implements Tracker<any> {
     supportsMetadataCache: false,
     supportsBulkSync: false,
     hasAlternativeTitles: true,
+    supportsVolumes: true,
   } as const;
 
   private async getAccessToken(): Promise<string | undefined> {
@@ -114,7 +115,7 @@ class MangaUpdates implements Tracker<any> {
     try {
       const response = await fetch(`${MANGA_UPDATES_API_URL}/account/profile`, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -176,7 +177,8 @@ class MangaUpdates implements Tracker<any> {
                   : []),
               ].filter(Boolean),
               coverImage: item.record.image?.url?.original,
-              totalChapters: item.record.last_chapter || undefined,
+              totalChapters: item.record.latest_chapter || undefined,
+              totalVolumes: item.record.publications?.[0]?.volume_count,
               description: item.record.description || undefined,
               status: item.record.status || undefined,
               year: item.record.year || undefined,
@@ -199,7 +201,7 @@ class MangaUpdates implements Tracker<any> {
   public async getUserListEntry(
     id: number | string,
     _authentication: any,
-    novel: { id: number },
+    novel?: { id: number },
   ): Promise<UserListEntry> {
     try {
       const token = await this.getAccessToken();
@@ -214,9 +216,11 @@ class MangaUpdates implements Tracker<any> {
         },
       );
 
+      let totalVolumes: number | undefined;
       if (seriesResponse.ok) {
         const seriesData = await seriesResponse.json();
-        if (seriesData.associated) {
+        totalVolumes = seriesData.publications?.[0]?.volume_count;
+        if (seriesData.associated && novel?.id) {
           const alternativeTitles = seriesData.associated.map(
             (item: { title: string }) => item.title,
           );
@@ -239,9 +243,12 @@ class MangaUpdates implements Tracker<any> {
         const listName = data.list_type || undefined;
         const progress =
           typeof status.chapter === 'number' ? status.chapter : 0;
+        const volume = typeof status.volume === 'number' ? status.volume : 0;
         return {
           status: 'CURRENT',
           progress,
+          volume,
+          totalVolumes,
           listId,
           listName,
         };
@@ -249,7 +256,7 @@ class MangaUpdates implements Tracker<any> {
     } catch (error) {
       showToast(`Error getting MangaUpdates list entry: ${error}`);
     }
-    return { status: 'CURRENT', progress: 0 };
+    return { status: 'CURRENT', progress: 0, volume: 0 };
   }
 
   public async updateUserListEntry(
@@ -257,11 +264,17 @@ class MangaUpdates implements Tracker<any> {
     payload: Partial<UserListEntry>,
     _authentication: any,
   ): Promise<UserListEntry> {
-    const existing = await this.getUserListEntry(id, _authentication);
+    const existing = await this.getUserListEntry(id, _authentication, {
+      id: 0,
+    });
     const nextProgress =
       typeof payload.progress === 'number'
         ? payload.progress
         : existing.progress || 0;
+    const nextVolume =
+      typeof payload.volume === 'number'
+        ? payload.volume
+        : existing.volume || 0;
 
     try {
       const token = await this.getAccessToken();
@@ -269,7 +282,12 @@ class MangaUpdates implements Tracker<any> {
         throw new Error('Not authenticated');
       }
 
-      let listId = existing.listId ? Number(existing.listId) : null;
+      let listId = null;
+      if (payload.listId !== undefined && payload.listId !== null) {
+        listId = Number(payload.listId);
+      } else if (existing.listId !== undefined && existing.listId !== null) {
+        listId = Number(existing.listId);
+      }
 
       if (!listId) {
         const lists = await this.getAvailableReadingLists();
@@ -288,13 +306,13 @@ class MangaUpdates implements Tracker<any> {
         }
       }
 
-      const updateBody = [
-        {
-          series: { id: Number(id) },
-          list_id: listId,
-          status: { chapter: nextProgress },
+      const updateBody = {
+        series: {
+          id: Number(id),
         },
-      ];
+        list_id: listId,
+        status: { chapter: nextProgress, volume: nextVolume },
+      };
 
       let response = await fetch(
         `${MANGA_UPDATES_API_URL}/lists/series/update`,
@@ -304,11 +322,16 @@ class MangaUpdates implements Tracker<any> {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(updateBody),
+          body: JSON.stringify([updateBody]),
         },
       );
-
       if (!response.ok) {
+        const addBody = {
+          series: {
+            id: Number(id),
+          },
+          list_id: listId,
+        };
         const addResponse = await fetch(
           `${MANGA_UPDATES_API_URL}/lists/series`,
           {
@@ -317,10 +340,9 @@ class MangaUpdates implements Tracker<any> {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify(updateBody),
+            body: JSON.stringify([addBody]),
           },
         );
-
         if (addResponse.ok) {
           response = await fetch(
             `${MANGA_UPDATES_API_URL}/lists/series/update`,
@@ -330,21 +352,31 @@ class MangaUpdates implements Tracker<any> {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,
               },
-              body: JSON.stringify(updateBody),
+              body: JSON.stringify([updateBody]),
             },
           );
+          await response.text();
         }
       }
+      let listName = existing.listName || 'Reading';
+      try {
+        const lists = await this.getAvailableReadingLists();
+        const selectedList = lists.find(l => l.id === String(listId));
+        if (selectedList) {
+          listName = selectedList.name;
+        }
+      } catch (e) {}
 
       return {
         ...existing,
         progress: nextProgress,
+        volume: nextVolume,
         listId: String(listId),
-        listName: existing.listName || 'Reading',
+        listName,
       };
     } catch (error) {
       showToast(`Error updating MangaUpdates: ${error}`);
-      return { ...existing, progress: nextProgress };
+      return { ...existing, progress: nextProgress, volume: nextVolume };
     }
   }
 
@@ -360,11 +392,12 @@ class MangaUpdates implements Tracker<any> {
       if (!resp.ok) return [];
       const lists = await resp.json();
       if (!Array.isArray(lists)) return [];
-      return lists.map((l: any) => ({
+      const mappedLists = lists.map((l: any) => ({
         id: String(l.list_id),
         name: l.title || l.type,
       }));
-    } catch (_) {
+      return mappedLists;
+    } catch (error) {
       return [];
     }
   }

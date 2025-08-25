@@ -92,6 +92,16 @@ export const deleteTracksByNovel = async (novelId: number): Promise<void> => {
   await db.runAsync('DELETE FROM tracks WHERE novelId = ?', [novelId]);
 };
 
+export const deleteTracksByNovelAndSource = async (
+  novelId: number,
+  source: TrackSource,
+): Promise<void> => {
+  await db.runAsync('DELETE FROM tracks WHERE novelId = ? AND source = ?', [
+    novelId,
+    source,
+  ]);
+};
+
 export const deleteTracksBySource = async (
   source: TrackSource,
 ): Promise<void> => {

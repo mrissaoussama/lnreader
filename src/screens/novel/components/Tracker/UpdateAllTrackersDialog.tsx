@@ -1,245 +1,85 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import {
-  Modal,
-  Portal,
   Text,
   Button,
   TextInput,
   ActivityIndicator,
+  Portal,
+  Modal,
 } from 'react-native-paper';
-import { useTheme, useTracker } from '@hooks/persisted';
+import { trackModalStyles } from './TrackModal.styles';
+import { useTracker } from '@hooks/persisted';
 import { ThemeColors } from '@theme/types';
 import { Track } from '@database/types/Track';
-import { trackers } from '@services/Trackers';
-import { updateTrack } from '@database/queries/TrackQueries';
+import { TRACKER_ORDER } from '@services/Trackers/common/constants';
+import { TrackerLogo } from '@services/Trackers/common/TrackerLogo';
+import { useTrackerProgress } from './hooks/useTrackerProgress';
 
-interface TrackerProgressData {
-  source: string;
-  progress: number;
-  isLoading: boolean;
-  error?: string;
-  progressDisplay?: string;
-}
-
-interface UpdateAllTrackersDialogProps {
+interface Props {
+  tracks: Track[];
   visible: boolean;
   onDismiss: () => void;
-  onConfirm: (targetProgress: number) => Promise<void>;
-  tracks: Track[];
+  onConfirm: (params: {
+    targetChapters?: number;
+    targetVolume?: number;
+  }) => Promise<void> | void;
   appProgress: number;
+  theme: ThemeColors;
 }
 
-const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
+const UpdateAllTrackersDialog: React.FC<Props> = ({
+  tracks,
   visible,
   onDismiss,
   onConfirm,
-  tracks,
   appProgress,
+  theme,
 }) => {
-  const theme = useTheme();
   const { getTrackerAuth } = useTracker();
   const styles = createStyles(theme);
-
-  const [trackersData, setTrackersData] = useState<TrackerProgressData[]>([]);
-  const [customProgress, setCustomProgress] = useState('');
-  const [_isUpdating, setIsUpdating] = useState(false);
-
-  const highestProgress = Math.max(
+  const [customChapters, setCustomChapters] = useState('');
+  const [customVolume, setCustomVolume] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const { data: trackersData, highest: highestProgress } = useTrackerProgress({
+    tracks,
     appProgress,
-    ...trackersData.map(t => t.progress),
-  );
+    getTrackerAuth,
+    visible,
+  });
 
-  const targetProgress = customProgress
-    ? parseInt(customProgress, 10) || highestProgress
-    : highestProgress;
-
-  const fetchAllTrackerProgress = React.useCallback(async () => {
-    const initialData: TrackerProgressData[] = tracks.map(track => ({
-      source: track.source,
-      progress: track.lastChapterRead,
-      isLoading: true,
-    }));
-    setTrackersData(initialData);
-
-    const trackerPromises = tracks.map(async (track, index): Promise<void> => {
-      try {
-        const tracker = trackers[track.source];
-        if (!tracker) {
-          setTrackersData(prev =>
-            prev.map((item, i) =>
-              i === index
-                ? {
-                    ...item,
-                    isLoading: false,
-                    error: 'Error loading tracker',
-                  }
-                : item,
-            ),
-          );
-          return;
-        }
-
-        const auth = getTrackerAuth(track.source);
-
-        if (!auth || !auth.accessToken || !auth.expiresAt) {
-          setTrackersData(prev =>
-            prev.map((item, i) =>
-              i === index
-                ? {
-                    ...item,
-                    isLoading: false,
-                    error: 'Not logged in',
-                  }
-                : item,
-            ),
-          );
-          return;
-        }
-
-        const userEntry = await tracker.getUserListEntry(
-          track.sourceId,
-          auth as any,
-        );
-
-        if (!userEntry || typeof userEntry !== 'object') {
-          setTrackersData(prev =>
-            prev.map((item, i) =>
-              i === index
-                ? {
-                    ...item,
-                    isLoading: false,
-                    error: 'Failed to get tracker progress',
-                  }
-                : item,
-            ),
-          );
-          return;
-        }
-
-        const progress = userEntry.progress || 0;
-
-        try {
-          const directId = (userEntry as any).listId as string | undefined;
-          const directName = (userEntry as any).listName as string | undefined;
-          let resolved: { id: string; name: string } | undefined;
-
-          if (directId || directName) {
-            resolved = { id: directId!, name: directName || directId! };
-          } else {
-            const status: string | undefined = (userEntry as any).status;
-            if (
-              status &&
-              typeof tracker.getAvailableReadingLists === 'function'
-            ) {
-              try {
-                const lists = await tracker.getAvailableReadingLists(
-                  'dummy',
-                  auth as any,
-                );
-                const found = Array.isArray(lists)
-                  ? lists.find(l => l && l.id === status)
-                  : undefined;
-                if (found) resolved = { id: found.id, name: found.name };
-              } catch {}
-            }
-          }
-
-          if (resolved) {
-            let md: any = {};
-            try {
-              if (track.metadata) md = JSON.parse(track.metadata);
-            } catch {}
-            const prevId =
-              typeof md.listId === 'string' ? md.listId : undefined;
-            const prevName =
-              typeof md.listName === 'string' ? md.listName : undefined;
-            if (prevId !== resolved.id || prevName !== resolved.name) {
-              const nextMetadata = JSON.stringify({
-                ...md,
-                listId: resolved.id,
-                listName: resolved.name,
-              });
-              await updateTrack(track.id, { metadata: nextMetadata });
-            }
-          }
-        } catch {}
-
-        setTrackersData(prev =>
-          prev.map((item, i) =>
-            i === index
-              ? {
-                  ...item,
-                  progress,
-                  progressDisplay: (userEntry as any).progressDisplay,
-                  isLoading: false,
-                }
-              : item,
-          ),
-        );
-      } catch (error: any) {
-        setTrackersData(prev =>
-          prev.map((item, i) =>
-            i === index
-              ? {
-                  ...item,
-                  isLoading: false,
-                  error: error.message || 'Failed to fetch progress',
-                }
-              : item,
-          ),
-        );
-      }
-    });
-
-    await Promise.allSettled(trackerPromises);
-  }, [tracks, getTrackerAuth]);
-
-  useEffect(() => {
-    if (visible) {
-      fetchAllTrackerProgress();
-    } else {
-      setTrackersData([]);
-      setCustomProgress('');
-    }
-  }, [visible, fetchAllTrackerProgress]);
+  const parsedChapters =
+    customChapters.trim() === '' ? undefined : parseInt(customChapters, 10);
+  const targetChapters = isNaN(parsedChapters as any)
+    ? undefined
+    : parsedChapters;
+  const parsedVolume =
+    customVolume.trim() === '' ? undefined : parseInt(customVolume, 10);
+  const targetVolume = isNaN(parsedVolume as any) ? undefined : parsedVolume;
 
   const handleConfirm = async () => {
     try {
       setIsUpdating(true);
-
-      onConfirm(targetProgress).catch(_error => {});
+      await Promise.resolve(onConfirm({ targetChapters, targetVolume }));
       onDismiss();
-    } catch (error) {
     } finally {
       setIsUpdating(false);
     }
   };
-
-  const renderProgressItem = (data: TrackerProgressData) => (
-    <View key={data.source} style={styles.progressItem}>
-      <Text style={styles.trackerName}>{data.source}:</Text>
-      <View style={styles.progressInfo}>
-        {data.isLoading ? (
-          <ActivityIndicator size="small" style={styles.loadingIcon} />
-        ) : data.error ? (
-          <Text style={styles.errorText}>{data.error}</Text>
-        ) : data.progressDisplay ? (
-          <Text style={styles.progressText}>{data.progressDisplay}</Text>
-        ) : (
-          <Text style={styles.progressText}>{data.progress}</Text>
-        )}
-      </View>
-    </View>
-  );
 
   return (
     <Portal>
       <Modal
         visible={visible}
         onDismiss={onDismiss}
-        contentContainerStyle={styles.modal}
-        style={styles.modalWrapper}
+        contentContainerStyle={[
+          trackModalStyles.sharedDialogContainer,
+          styles.modal,
+          {
+            backgroundColor:
+              theme.surface2 || theme.surface || theme.background,
+          },
+        ]}
       >
         <Text style={styles.title}>Update All Trackers</Text>
 
@@ -251,27 +91,67 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
             </View>
           </View>
 
-          {trackersData.map(renderProgressItem)}
+          {trackersData
+            .sort((a, b) => {
+              const aIndex = TRACKER_ORDER.indexOf(a.source as any);
+              const bIndex = TRACKER_ORDER.indexOf(b.source as any);
+              return aIndex - bIndex;
+            })
+            .map(item => (
+              <View key={item.source} style={styles.progressItem}>
+                <TrackerLogo source={item.source as any} size={20} />
+                <Text style={styles.trackerName}>{item.source}:</Text>
+                <View style={styles.progressInfo}>
+                  {item.isLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      style={styles.loadingIcon}
+                    />
+                  ) : item.error ? (
+                    <Text style={styles.errorText}>{item.error}</Text>
+                  ) : item.progressDisplay ? (
+                    <Text style={styles.progressText}>
+                      {item.progressDisplay}
+                    </Text>
+                  ) : (
+                    <Text style={styles.progressText}>{item.progress}</Text>
+                  )}
+                </View>
+              </View>
+            ))}
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Target Progress</Text>
+          <Text style={styles.sectionTitle}>Target Chapters / Volume</Text>
           <View style={styles.progressRow}>
-            <Text style={styles.autoProgressText}>
-              Highest: {highestProgress} chapters
-            </Text>
-            <TextInput
-              label="Set Progress"
-              value={customProgress}
-              onChangeText={setCustomProgress}
-              keyboardType="numeric"
-              placeholder={highestProgress.toString()}
-              style={styles.customInput}
-              dense
-            />
+            <View style={styles.progressLeftColumn}>
+              <Text style={styles.autoProgressText}>
+                Highest (chapters): {highestProgress}
+              </Text>
+              <TextInput
+                label="Chapters"
+                value={customChapters}
+                onChangeText={setCustomChapters}
+                keyboardType="numeric"
+                placeholder={highestProgress.toString()}
+                style={styles.customInput}
+                dense
+              />
+            </View>
+            <View style={styles.volumeColumn}>
+              <TextInput
+                label="Volume"
+                value={customVolume}
+                onChangeText={setCustomVolume}
+                keyboardType="numeric"
+                placeholder="Leave"
+                style={styles.customInput}
+                dense
+              />
+            </View>
           </View>
           <Text style={styles.helpText}>
-            Leave empty to use the highest progress
+            Leave fields empty to skip updating them.
           </Text>
         </View>
 
@@ -282,10 +162,11 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
           <Button
             mode="contained"
             onPress={handleConfirm}
-            disabled={targetProgress < 0 || isNaN(targetProgress)}
+            disabled={isUpdating}
             style={styles.button}
+            loading={isUpdating}
           >
-            Update to {targetProgress}
+            Update
           </Button>
         </View>
       </Modal>
@@ -295,17 +176,7 @@ const UpdateAllTrackersDialog: React.FC<UpdateAllTrackersDialogProps> = ({
 
 const createStyles = (theme: ThemeColors) =>
   StyleSheet.create({
-    modalWrapper: {
-      zIndex: 6000,
-    },
-    modal: {
-      backgroundColor: theme.background,
-      margin: 20,
-      padding: 20,
-      borderRadius: 8,
-      maxHeight: '80%',
-      zIndex: 6001,
-    },
+    modal: { padding: 20 },
     title: {
       fontSize: 20,
       fontWeight: 'bold',
@@ -322,6 +193,7 @@ const createStyles = (theme: ThemeColors) =>
       paddingVertical: 8,
       borderBottomWidth: 0.5,
       borderBottomColor: theme.outline,
+      gap: 8,
     },
     trackerName: {
       fontSize: 14,
@@ -343,8 +215,8 @@ const createStyles = (theme: ThemeColors) =>
       marginLeft: 8,
     },
     section: {
-      marginTop: 16,
-      marginBottom: 16,
+      marginTop: 8,
+      marginBottom: 8,
     },
     sectionTitle: {
       fontSize: 16,
@@ -362,6 +234,8 @@ const createStyles = (theme: ThemeColors) =>
       color: theme.onBackground,
       fontSize: 14,
     },
+    progressLeftColumn: { flex: 1 },
+    volumeColumn: { width: 140 },
     customInput: {
       width: 120,
     },
@@ -372,7 +246,7 @@ const createStyles = (theme: ThemeColors) =>
       fontStyle: 'italic',
     },
     errorText: {
-      color: theme.error,
+      color: '#B00020',
       fontSize: 12,
     },
     actions: {

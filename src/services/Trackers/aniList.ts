@@ -31,7 +31,7 @@ const mapStatusToAniList = (status: string) => {
   }
 };
 
-const mapStatusFromAniList = status => {
+const mapStatusFromAniList = (status: string) => {
   switch (status) {
     case 'CURRENT':
       return 'CURRENT';
@@ -63,14 +63,18 @@ const getAniListListMeta = (normalizedStatus: string) => {
     name: nameMap[normalizedStatus] || normalizedStatus,
   };
 };
-const getHeaders = auth => ({
+const getHeaders = (auth?: string) => ({
   'Content-Type': 'application/json',
   Accept: 'application/json',
   ...(auth && {
     Authorization: `Bearer ${auth}`,
   }),
 });
-const handleSearch = async (query, authentication, options) => {
+const handleSearch = async (
+  query: string,
+  authentication: any,
+  options?: { page?: number },
+) => {
   const page = options?.page || 1;
   const searchQuery = `
     query($page: Int = 1, $search: String, $format: [MediaFormat]) {
@@ -138,7 +142,7 @@ const handleSearch = async (query, authentication, options) => {
   if (json.errors) {
     throw new Error(json.errors[0].message);
   }
-  const results = json.data.Page.media.map(item => ({
+  const results = json.data.Page.media.map((item: any) => ({
     id: item.id,
     title:
       item.title.userPreferred ||
@@ -153,33 +157,49 @@ const handleSearch = async (query, authentication, options) => {
     ].filter(title => title && title.trim().length > 0),
     coverImage: item.coverImage?.large || item.coverImage?.medium,
     totalChapters: item.chapters,
+    totalVolumes: item.volumes,
     description: item.description,
     status: item.status,
     year: item.startDate?.year,
     genres: item.genres,
-    author: item.staff?.edges?.find(edge => edge.role === 'Story')?.node?.name
-      ?.full,
+    author: item.staff?.edges?.find((edge: any) => edge.role === 'Story')?.node
+      ?.name?.full,
   }));
   return results;
 };
-const updateUserListEntry = async (id, payload, authentication) => {
-  // If progress is not provided in payload, get existing progress to preserve it
+const updateUserListEntry = async (
+  id: number | string,
+  payload: any,
+  authentication: any,
+) => {
   let finalProgress = payload.progress;
-  if (finalProgress === undefined) {
+  let finalVolume = (payload as any).volume as number | undefined;
+  if (finalProgress === undefined || finalVolume === undefined) {
     try {
       const existingEntry = await getUserListEntry(Number(id), authentication);
-      if (existingEntry && typeof existingEntry.progress === 'number') {
+      if (
+        finalProgress === undefined &&
+        existingEntry &&
+        typeof existingEntry.progress === 'number'
+      ) {
         finalProgress = existingEntry.progress;
+      }
+      if (
+        finalVolume === undefined &&
+        existingEntry &&
+        typeof (existingEntry as any).volume === 'number'
+      ) {
+        finalVolume = (existingEntry as any).volume;
       }
     } catch (e) {}
   }
-
   const mutation = `
-    mutation ($mediaId: Int, $progress: Int, $status: MediaListStatus, $score: Float) {
-      SaveMediaListEntry (mediaId: $mediaId, progress: $progress, status: $status, score: $score) {
+    mutation ($mediaId: Int, $progress: Int, $progressVolumes: Int, $status: MediaListStatus, $score: Float) {
+      SaveMediaListEntry (mediaId: $mediaId, progress: $progress, progressVolumes: $progressVolumes, status: $status, score: $score) {
         id
         status
         progress
+        progressVolumes
         score
       }
     }
@@ -187,10 +207,13 @@ const updateUserListEntry = async (id, payload, authentication) => {
   const variables = {
     mediaId: Number(id),
     progress: finalProgress,
+    progressVolumes:
+      typeof finalVolume === 'number' && !isNaN(finalVolume)
+        ? finalVolume
+        : undefined,
     status: payload.status ? mapStatusToAniList(payload.status) : undefined,
     score: payload.score,
   };
-
   const body = {
     query: mutation,
     variables,
@@ -206,7 +229,6 @@ const updateUserListEntry = async (id, payload, authentication) => {
   });
 
   const json = await response.json();
-
   if (json.errors) {
     throw new Error(json.errors[0].message);
   }
@@ -216,76 +238,48 @@ const updateUserListEntry = async (id, payload, authentication) => {
   const result = {
     status: normalized,
     progress: entry.progress,
+    volume:
+      typeof entry.progressVolumes === 'number'
+        ? entry.progressVolumes
+        : undefined,
     score: entry.score,
     listId: listMeta.id,
     listName: listMeta.name,
   };
-
   return result;
 };
 const getUserListEntry = async (mediaId: number, authentication: any) => {
   const query = `
-    query GetMediaListEntry($mediaId: Int, $userId: Int) {
-      MediaList(mediaId: $mediaId, userId: $userId) {
-        id
-        mediaId
-        progress
-        status
-        score
-        notes
-        startedAt {
-          year
-          month
-          day
-        }
-        completedAt {
-          year
-          month
-          day
+    query GetMediaListEntry($mediaId: Int) {
+      Media(id: $mediaId, type: MANGA) {
+        chapters
+        volumes
+        mediaListEntry {
+          id
+          progress
+          progressVolumes
+          status
+          score
+          notes
+          startedAt { year month day }
+          completedAt { year month day }
         }
       }
     }
   `;
-  const userQuery = `
-    query {
-      Viewer {
-        id
-      }
-    }
-  `;
-
-  const userResponse = await fetch(ANILIST_API_URL, {
-    method: 'POST',
-    headers: getHeaders(authentication.accessToken),
-    body: JSON.stringify({
-      query: userQuery,
-    }),
-  });
-
-  const userJson = await userResponse.json();
-  const userId = userJson.data?.Viewer?.id;
-
-  if (!userId) {
-    throw new Error('Could not get user ID from AniList');
-  }
-
-  const variables = {
-    mediaId,
-    userId,
-  };
 
   const response = await fetch(ANILIST_API_URL, {
     method: 'POST',
     headers: getHeaders(authentication.accessToken),
     body: JSON.stringify({
       query,
-      variables,
+      variables: { mediaId },
     }),
   });
 
   const result = await response.json();
-
-  const entry = result.data?.MediaList || null;
+  const media = result.data?.Media || null;
+  const entry = media?.mediaListEntry || null;
   if (!entry) return null;
 
   const status = mapStatusFromAniList(entry.status);
@@ -294,12 +288,18 @@ const getUserListEntry = async (mediaId: number, authentication: any) => {
   const normalized = {
     status,
     progress: entry.progress,
+    volume: entry.progressVolumes ?? undefined,
+    totalVolumes: media?.volumes ?? undefined,
     score: entry.score,
     notes: entry.notes,
     startDate: entry.startedAt,
     finishDate: entry.completedAt,
     listId: listMeta.id,
     listName: listMeta.name,
+    progressDisplay:
+      typeof entry.progressVolumes === 'number' && entry.progressVolumes > 0
+        ? `V.${entry.progressVolumes} Ch.${entry.progress ?? 0}`
+        : undefined,
   };
 
   return normalized;
@@ -383,18 +383,20 @@ const addToReadingList = async (
 
   if (existingEntry && existingEntry.progress !== undefined) {
     const finalProgress = Math.max(progress, existingEntry.progress);
+    const finalVolume = (existingEntry as any).volume || undefined;
     return updateUserListEntry(
       mediaId,
-      { progress: finalProgress, status },
+      { progress: finalProgress, status, volume: finalVolume },
       authentication,
     );
   } else {
     const mutation = `
-      mutation SaveMediaListEntry($mediaId: Int, $progress: Int, $status: MediaListStatus) {
-        SaveMediaListEntry(mediaId: $mediaId, progress: $progress, status: $status) {
+      mutation SaveMediaListEntry($mediaId: Int, $progress: Int, $progressVolumes: Int, $status: MediaListStatus) {
+        SaveMediaListEntry(mediaId: $mediaId, progress: $progress, progressVolumes: $progressVolumes, status: $status) {
           id
           mediaId
           progress
+          progressVolumes
           status
         }
       }
@@ -403,6 +405,7 @@ const addToReadingList = async (
     const variables = {
       mediaId,
       progress,
+      progressVolumes: undefined,
       status,
     };
 
@@ -426,54 +429,26 @@ const addToReadingList = async (
 };
 const getAllTrackedNovels = async (authentication: any) => {
   const query = `
-    query ($userId: Int, $type: MediaType) {
-      MediaListCollection(userId: $userId, type: $type) {
+    query {
+      Viewer { id }
+      MediaListCollection(type: MANGA) {
         lists {
           name
           entries {
             mediaId
             status
             progress
-            media {
-              id
-              siteUrl
-              format
-            }
+            media { id siteUrl format chapters title { userPreferred romaji } }
+            notes
           }
         }
       }
     }
   `;
-  const userQuery = `
-    query {
-      Viewer {
-        id
-      }
-    }
-  `;
-  const userResponse = await fetch(ANILIST_API_URL, {
-    method: 'POST',
-    headers: getHeaders(authentication.accessToken),
-    body: JSON.stringify({
-      query: userQuery,
-    }),
-  });
-  const userJson = await userResponse.json();
-  const userId = userJson.data?.Viewer?.id;
-  if (!userId) {
-    throw new Error('Could not get user ID from AniList');
-  }
-  const variables = {
-    userId,
-    type: 'MANGA',
-  };
   const response = await fetch(ANILIST_API_URL, {
     method: 'POST',
     headers: getHeaders(authentication.accessToken),
-    body: JSON.stringify({
-      query,
-      variables,
-    }),
+    body: JSON.stringify({ query }),
   });
   const json = await response.json();
   if (json.errors) {
@@ -511,6 +486,7 @@ export const anilist = {
     supportsMetadataCache: false,
     supportsBulkSync: true,
     hasAlternativeTitles: true,
+    supportsVolumes: true,
   },
   authenticate,
   handleSearch,
