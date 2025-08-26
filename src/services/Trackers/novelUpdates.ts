@@ -558,6 +558,21 @@ const getAlternativeTitles = (loadedCheerio: CheerioAPI): string[] => {
   return titles;
 };
 
+const getTags = (loadedCheerio: CheerioAPI): string[] => {
+  try {
+    const tagsDiv = loadedCheerio('#showtags');
+    if (!tagsDiv.length) return [];
+    const tags: string[] = [];
+    tagsDiv.find('a.genre').each((_, el) => {
+      const txt = loadedCheerio(el).text().trim();
+      if (txt) tags.push(txt);
+    });
+    return Array.from(new Set(tags));
+  } catch {
+    return [];
+  }
+};
+
 const getReadingListStatus = (loadedCheerio: CheerioAPI): string | null => {
   const sticon = loadedCheerio('div.sticon');
   if (sticon.find('img[src*="addme.png"]').length) {
@@ -965,6 +980,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
     };
   }
   let alternativeTitles: string[] = [];
+  let tags: string[] = [];
   let novelId: string = '';
   const slug = id;
   const url = `${NOVEL_UPDATES_BASE_URL}/series/${slug}`;
@@ -979,9 +995,16 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       const fetchAlt = MMKVStorage.getBoolean(
         'novelupdates_fetch_alternative_titles',
       );
-      alternativeTitles = fetchAlt ? getAlternativeTitles(loadedCheerio) : [];
+      if (fetchAlt) {
+        alternativeTitles = getAlternativeTitles(loadedCheerio);
+        tags = getTags(loadedCheerio);
+      } else {
+        alternativeTitles = [];
+        tags = [];
+      }
     } catch (_) {
       alternativeTitles = [];
+      tags = [];
     }
     const listValue = getReadingListStatus(loadedCheerio);
 
@@ -995,6 +1018,8 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
         metadata: JSON.stringify({ novelId, alternativeTitles, slug }),
       };
     }
+    const notesTrackingEnabled =
+      MMKVStorage.getBoolean('novelupdates_use_notes_tracking') ?? true;
     const notesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
     const notesBody = `action=wi_notestagsfic&strSID=${novelId}`;
 
@@ -1014,7 +1039,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
 
     let notesProgress = 0;
     let notesVolumes = 0;
-    if (notesData && notesData.notes) {
+    if (notesTrackingEnabled && notesData && notesData.notes) {
       let actualNotes = notesData.notes;
       try {
         if (actualNotes.startsWith('{"') || actualNotes.startsWith('{')) {
@@ -1075,6 +1100,7 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       markedProgress: markedProgress,
       finalProgress: finalProgress,
       ...(notesVolumes ? { currentVolume: notesVolumes } : {}),
+      ...(tags.length ? { tags } : {}),
     };
 
     return {
@@ -1082,8 +1108,9 @@ const getUserListEntry: Tracker['getUserListEntry'] = async (
       progress: Math.max(finalProgress, 0),
       ...(notesVolumes ? { volume: notesVolumes } : {}),
       score: 0,
-      notes: notesData.notes || '',
+      notes: notesTrackingEnabled && notesData.notes ? notesData.notes : '',
       alternativeTitles,
+      ...(tags.length ? { genres: tags } : {}),
       metadata: JSON.stringify(metadata),
       progressDisplay:
         (notesVolumes ? `V.${notesVolumes} ` : '') +
@@ -1112,6 +1139,7 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
 
   let novelId: string | undefined;
   let alternativeTitles: string[] = [];
+  let tags: string[] = [];
   let slug = id;
 
   if (payload.metadata) {
@@ -1135,7 +1163,15 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     const body = await result.text();
     const loadedCheerio = load(body);
     novelId = getNovelId(loadedCheerio);
-    alternativeTitles = getAlternativeTitles(loadedCheerio);
+    try {
+      const fetchAlt = MMKVStorage.getBoolean(
+        'novelupdates_fetch_alternative_titles',
+      );
+      if (fetchAlt) {
+        alternativeTitles = getAlternativeTitles(loadedCheerio);
+        tags = getTags(loadedCheerio);
+      }
+    } catch {}
   }
 
   const listId =
@@ -1148,7 +1184,18 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     await fetchApi(updateUrl);
   }
 
-  if (payload.progress !== undefined || payload.volume !== undefined) {
+  const notesTrackingEnabled =
+    MMKVStorage.getBoolean('novelupdates_use_notes_tracking') ?? true;
+  const markChaptersEnabled =
+    MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
+  if (!notesTrackingEnabled && !markChaptersEnabled) {
+    MMKVStorage.set('novelupdates_use_notes_tracking', true);
+  }
+
+  if (
+    notesTrackingEnabled &&
+    (payload.progress !== undefined || payload.volume !== undefined)
+  ) {
     const getNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
     const getNotesBody = `action=wi_notestagsfic&strSID=${novelId}`;
 
@@ -1223,16 +1270,13 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     });
   }
 
-  if (payload.progress !== undefined && payload.progress > 0) {
+  if (
+    markChaptersEnabled &&
+    payload.progress !== undefined &&
+    payload.progress > 0
+  ) {
     try {
-      const markChaptersEnabled =
-        MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false;
-
-      if (markChaptersEnabled) {
-        markChaptersUpToProgress(novelId, payload.progress, auth).catch(
-          () => {},
-        );
-      }
+      markChaptersUpToProgress(novelId, payload.progress, auth).catch(() => {});
     } catch (error) {}
   }
 
@@ -1242,7 +1286,13 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     score: payload.score,
     notes: payload.notes,
     alternativeTitles,
-    metadata: JSON.stringify({ novelId, alternativeTitles, slug }),
+    ...(tags.length ? { genres: tags } : {}),
+    metadata: JSON.stringify({
+      novelId,
+      alternativeTitles,
+      slug,
+      ...(tags.length ? { tags } : {}),
+    }),
     novelPluginId: (payload as any).novelPluginId,
     novelPath: (payload as any).novelPath,
     chapterName: (payload as any).chapterName,
