@@ -42,6 +42,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
   const [nuAltTitles, setNuAltTitles] = useState(
     MMKVStorage.getBoolean('novelupdates_fetch_alternative_titles') ?? false,
   );
+  const [nuNotesTracking, setNuNotesTracking] = useState(
+    MMKVStorage.getBoolean('novelupdates_use_notes_tracking') ?? true,
+  );
   const [muAltTitles, setMuAltTitles] = useState(
     MMKVStorage.getBoolean('mangaupdates_fetch_alternative_titles') ?? false,
   );
@@ -269,7 +272,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurface },
                         ]}
                       >
-                        Fetch Alternative Titles
+                        {getString(
+                          'novelUpdatesSettings.fetchAltTitlesTags' as any,
+                        )}
                       </Text>
                       <Text
                         style={[
@@ -277,7 +282,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurfaceVariant },
                         ]}
                       >
-                        May send one extra request per entry
+                        {getString(
+                          'novelUpdatesSettings.fetchAltTitlesTagsDesc' as any,
+                        )}
                       </Text>
                     </View>
                     <Switch
@@ -299,7 +306,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurface },
                         ]}
                       >
-                        {getString('trackingScreen.markChaptersAsRead')}
+                        {getString(
+                          'novelUpdatesSettings.useNotesTracking' as any,
+                        )}
                       </Text>
                       <Text
                         style={[
@@ -307,12 +316,61 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurfaceVariant },
                         ]}
                       >
-                        {getString('trackingScreen.markChaptersAsReadDesc')}
+                        {getString(
+                          'novelUpdatesSettings.useNotesTrackingDesc' as any,
+                        )}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={nuNotesTracking}
+                      onValueChange={v => {
+                        if (!v && !nuMarkChapters) {
+                          showToast(
+                            (getString(
+                              'novelUpdatesSettings.enableEitherMethod' as any,
+                            ) as string) ||
+                              'Enable either notes tracking or mark chapters',
+                          );
+                          return;
+                        }
+                        setNuNotesTracking(v);
+                        MMKVStorage.set('novelupdates_use_notes_tracking', v);
+                      }}
+                    />
+                  </View>
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text
+                        style={[
+                          styles.settingTitle,
+                          { color: theme.onSurface },
+                        ]}
+                      >
+                        {getString('trackingScreen.markChaptersAsRead' as any)}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.settingSubtitle,
+                          { color: theme.onSurfaceVariant },
+                        ]}
+                      >
+                        {getString(
+                          'trackingScreen.markChaptersAsReadDesc' as any,
+                        )}
                       </Text>
                     </View>
                     <Switch
                       value={nuMarkChapters}
                       onValueChange={v => {
+                        if (!v && !nuNotesTracking) {
+                          showToast(
+                            (getString(
+                              'novelUpdatesSettings.enableEitherMethod' as any,
+                            ) as string) ||
+                              'Enable either notes tracking or mark chapters',
+                          );
+                          return;
+                        }
                         setNuMarkChapters(v);
                         MMKVStorage.set(
                           'novelupdates_mark_chapters_enabled',
