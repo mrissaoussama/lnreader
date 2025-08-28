@@ -172,9 +172,6 @@ function updateToDBVersion2() {
     db.runSync(createNotesIndexQuery);
     db.runSync(createNotesTriggerQuery);
     db.runSync(createRepositoryTableQuery);
-    db.runSync(createNovelTriggerQueryInsert);
-    db.runSync(createNovelTriggerQueryUpdate);
-    db.runSync(createNovelTriggerQueryDelete);
     db.execSync('PRAGMA user_version = 2');
   });
 }
