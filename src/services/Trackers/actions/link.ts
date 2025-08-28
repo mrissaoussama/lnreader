@@ -88,6 +88,11 @@ export async function createTrackRecord(params: CreateTrackRecordParams) {
 
   const appProgress = getHighestReadChapter();
   let trackerProgress = 0;
+  let trackerEntry: Awaited<
+    ReturnType<
+      NonNullable<(typeof trackers)[keyof typeof trackers]>['getUserListEntry']
+    >
+  > = null;
   try {
     const auth = getTrackerAuth(selectedTracker);
     const trackerImpl = trackers[selectedTracker];
@@ -95,8 +100,11 @@ export async function createTrackRecord(params: CreateTrackRecordParams) {
       const entry = await trackerImpl.getUserListEntry(String(item.id), auth, {
         id: novel.id,
       });
-      if (entry && typeof entry.progress === 'number') {
-        trackerProgress = entry.progress;
+      if (entry) {
+        trackerEntry = entry;
+        if (typeof entry.progress === 'number') {
+          trackerProgress = entry.progress;
+        }
       }
     }
   } catch {}
@@ -123,6 +131,12 @@ export async function createTrackRecord(params: CreateTrackRecordParams) {
         : {}),
       ...(selectedTracker === TRACKER_SOURCES.NOVELLIST
         ? { slug: item.__trackerMeta?.novellistSlug }
+        : {}),
+      ...(typeof (trackerEntry as any)?.volume === 'number'
+        ? { currentVolume: (trackerEntry as any).volume }
+        : {}),
+      ...(typeof (trackerEntry as any)?.totalVolumes === 'number'
+        ? { maxVolume: (trackerEntry as any).totalVolumes }
         : {}),
       ...(typeof (item as any).totalVolumes === 'number'
         ? { maxVolume: (item as any).totalVolumes }

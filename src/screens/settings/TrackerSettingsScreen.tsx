@@ -25,12 +25,10 @@ import { TrackerLogo } from '@services/Trackers/common/TrackerLogo';
 const TrackerSettingsScreen = ({ navigation }: any) => {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const { setTracker, removeTracker, isLoggedIn, getLoggedInTrackers } =
-    useTracker();
+  const { setTracker, removeTracker, isLoggedIn } = useTracker();
   const { autoSyncTracker, autoSyncChapterThreshold, setAppSettings } =
     useAppSettings();
 
-  const loggedInTrackers = getLoggedInTrackers();
   const [customThreshold, setCustomThreshold] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
@@ -56,6 +54,9 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
   );
   const [nuMarkChapters, setNuMarkChapters] = useState(
     MMKVStorage.getBoolean('novelupdates_mark_chapters_enabled') ?? false,
+  );
+  const [nuPreserveNotes, setNuPreserveNotes] = useState(
+    MMKVStorage.getBoolean('novelupdates_preserve_user_notes') ?? true,
   );
 
   const handleAutoSyncToggle = (value: boolean) => {
@@ -272,9 +273,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurface },
                         ]}
                       >
-                        {getString(
-                          'novelUpdatesSettings.fetchAltTitlesTags' as any,
-                        )}
+                        {getString('trackerSettings.fetchAltTitlesTags')}
                       </Text>
                       <Text
                         style={[
@@ -283,7 +282,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         ]}
                       >
                         {getString(
-                          'novelUpdatesSettings.fetchAltTitlesTagsDesc' as any,
+                          'trackerSettings.fetchAltTitlesTagsDesc' as any,
                         )}
                       </Text>
                     </View>
@@ -306,9 +305,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           { color: theme.onSurface },
                         ]}
                       >
-                        {getString(
-                          'novelUpdatesSettings.useNotesTracking' as any,
-                        )}
+                        {getString('trackerSettings.useNotesTracking')}
                       </Text>
                       <Text
                         style={[
@@ -317,7 +314,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         ]}
                       >
                         {getString(
-                          'novelUpdatesSettings.useNotesTrackingDesc' as any,
+                          'trackerSettings.useNotesTrackingDesc' as any,
                         )}
                       </Text>
                     </View>
@@ -327,7 +324,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         if (!v && !nuMarkChapters) {
                           showToast(
                             (getString(
-                              'novelUpdatesSettings.enableEitherMethod' as any,
+                              'trackerSettings.enableEitherMethod' as any,
                             ) as string) ||
                               'Enable either notes tracking or mark chapters',
                           );
@@ -365,7 +362,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         if (!v && !nuNotesTracking) {
                           showToast(
                             (getString(
-                              'novelUpdatesSettings.enableEitherMethod' as any,
+                              'trackerSettings.enableEitherMethod' as any,
                             ) as string) ||
                               'Enable either notes tracking or mark chapters',
                           );
@@ -376,6 +373,34 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                           'novelupdates_mark_chapters_enabled',
                           v,
                         );
+                      }}
+                    />
+                  </View>
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingInfo}>
+                      <Text
+                        style={[
+                          styles.settingTitle,
+                          { color: theme.onSurface },
+                        ]}
+                      >
+                        {getString('trackerSettings.preserveUserNotes')}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.settingSubtitle,
+                          { color: theme.onSurfaceVariant },
+                        ]}
+                      >
+                        {getString('trackerSettings.preserveUserNotesDesc')}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={nuPreserveNotes}
+                      disabled={!nuNotesTracking}
+                      onValueChange={v => {
+                        setNuPreserveNotes(v);
+                        MMKVStorage.set('novelupdates_preserve_user_notes', v);
                       }}
                     />
                   </View>
@@ -395,7 +420,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         { color: theme.onSurfaceVariant },
                       ]}
                     >
-                      Sends one extra request to MangaUpdates
+                      Sends 1 extra request to MangaUpdates
                     </Text>
                   </View>
                   <Switch
@@ -424,7 +449,7 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
                         { color: theme.onSurfaceVariant },
                       ]}
                     >
-                      Attempts to include alternative titles (may add a request)
+                      Sends 1 extra request
                     </Text>
                   </View>
                   <Switch
@@ -506,27 +531,6 @@ const TrackerSettingsScreen = ({ navigation }: any) => {
           titleStyle={{ color: theme.onSurface }}
         />
       </Appbar.Header>
-
-      {loggedInTrackers.length > 0 && (
-        <View style={styles.summaryContainer}>
-          <Text style={[styles.summaryText, { color: theme.onSurface }]}>
-            Connected to {loggedInTrackers.length} tracker
-            {loggedInTrackers.length !== 1 ? 's' : ''}
-          </Text>
-          <View style={styles.chipContainer}>
-            {loggedInTrackers.map(tracker => (
-              <Chip
-                key={tracker}
-                style={styles.chip}
-                textStyle={{ color: theme.onPrimaryContainer }}
-                mode="outlined"
-              >
-                {tracker}
-              </Chip>
-            ))}
-          </View>
-        </View>
-      )}
 
       {/* Auto-sync Settings */}
       <Card style={[styles.card, { backgroundColor: theme.surface }]}>

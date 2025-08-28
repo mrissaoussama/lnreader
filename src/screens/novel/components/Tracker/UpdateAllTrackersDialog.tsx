@@ -82,7 +82,6 @@ const UpdateAllTrackersDialog: React.FC<Props> = ({
         ]}
       >
         <Text style={styles.title}>Update All Trackers</Text>
-
         <View style={styles.progressContainer}>
           <View style={styles.progressItem}>
             <Text style={styles.trackerName}>App:</Text>
@@ -97,28 +96,41 @@ const UpdateAllTrackersDialog: React.FC<Props> = ({
               const bIndex = TRACKER_ORDER.indexOf(b.source as any);
               return aIndex - bIndex;
             })
-            .map(item => (
-              <View key={item.source} style={styles.progressItem}>
-                <TrackerLogo source={item.source as any} size={20} />
-                <Text style={styles.trackerName}>{item.source}:</Text>
-                <View style={styles.progressInfo}>
-                  {item.isLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      style={styles.loadingIcon}
-                    />
-                  ) : item.error ? (
-                    <Text style={styles.errorText}>{item.error}</Text>
-                  ) : item.progressDisplay ? (
-                    <Text style={styles.progressText}>
-                      {item.progressDisplay}
+            .map(item => {
+              try {
+                return (
+                  <View
+                    key={item.source || Math.random()}
+                    style={styles.progressItem}
+                  >
+                    {item.source ? (
+                      <TrackerLogo source={item.source as any} size={20} />
+                    ) : null}
+                    <Text style={styles.trackerName}>
+                      {item.source || 'unknown'}:
                     </Text>
-                  ) : (
-                    <Text style={styles.progressText}>{item.progress}</Text>
-                  )}
-                </View>
-              </View>
-            ))}
+                    <View style={styles.progressInfo}>
+                      {item.isLoading ? (
+                        <ActivityIndicator
+                          size="small"
+                          style={styles.loadingIcon}
+                        />
+                      ) : item.error ? (
+                        <Text style={styles.errorText}>{item.error}</Text>
+                      ) : item.progressDisplay ? (
+                        <Text style={styles.progressText}>
+                          {item.progressDisplay}
+                        </Text>
+                      ) : (
+                        <Text style={styles.progressText}>{item.progress}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              } catch (err) {
+                return null;
+              }
+            })}
         </View>
 
         <View style={styles.section}>

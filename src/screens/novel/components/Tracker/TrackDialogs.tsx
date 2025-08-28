@@ -32,7 +32,7 @@ interface TrackDialogsProps {
   tracks: any[];
   updateAllDialogVisible: boolean;
   setUpdateAllDialogVisible: (v: boolean) => void;
-  handleUpdateAllConfirm: (progress: number) => void;
+  handleUpdateAllConfirm: (progress: number, volume?: number) => void;
   appProgress: number;
   loadTracks: () => void;
   titlePickerVisible: boolean;
@@ -120,8 +120,8 @@ export const TrackDialogs: React.FC<TrackDialogsProps> = props => {
           setUpdateAllDialogVisible(false);
           loadTracks();
         }}
-        onConfirm={({ targetChapters }) =>
-          handleUpdateAllConfirm(targetChapters ?? appProgress)
+        onConfirm={({ targetChapters, targetVolume }) =>
+          handleUpdateAllConfirm(targetChapters ?? appProgress, targetVolume)
         }
         appProgress={appProgress}
         theme={theme}
@@ -197,14 +197,14 @@ export const TrackDialogs: React.FC<TrackDialogsProps> = props => {
                 >
                   {item.name}
                 </Text>
-                {(selectedTrack
+                {selectedTrack
                   ? dialogSelectedListId === item.id
                   : (linkingLists || []).some(
                       l =>
                         l.id === item.id &&
                         l.id ===
                           linkingLists?.find(ll => ll.id === item.id)?.id,
-                    )) && <Text style={{ color: theme.primary }}>✓</Text>}
+                    )}
               </TouchableOpacity>
             )}
             keyExtractor={(item, index) => `${item.id}-${index}`}

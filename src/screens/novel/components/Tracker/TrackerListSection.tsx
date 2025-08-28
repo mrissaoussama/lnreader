@@ -119,7 +119,7 @@ export const TrackerListSection: React.FC<TrackerListSectionProps> = ({
         <List.Item
           title={sourceKey}
           titleNumberOfLines={20}
-          description={`${volumePrefix}${track.lastChapterRead || 0}/${
+          description={`${volumePrefix}Ch.${track.lastChapterRead || 0}/${
             track.totalChapters || '?'
           }${listSuffix}\n${track.title}`}
           descriptionNumberOfLines={20}

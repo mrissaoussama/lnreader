@@ -680,9 +680,7 @@
     "customThresholdSet": "Custom threshold set to %{value} chapters",
     "customThresholdError": "Please enter a valid number greater than 0"
   },
-  "novelUpdatesSettings": {
-    "title": "Novel Updates Settings",
-    "trackingSettings": "Tracking Settings",
+  "trackerSettings": {
     "markChaptersEnabled": "Mark chapters when tracking",
     "markChaptersEnabledDesc": "When updating progress, also mark individual chapters in Novel Updates (in addition to updating notes)",
     "syncSettings": "Sync Settings",
@@ -691,10 +689,12 @@
     "updateAllNovels": "Update all novels",
     "updateAllNovelsDesc": "Update progress for all novels, not just those from Novel Updates source",
   "fetchAltTitlesTags": "Fetch Alternative Titles & Tags",
-  "fetchAltTitlesTagsDesc": "Add alternative titles and tags (one extra request)",
+  "fetchAltTitlesTagsDesc": "Adds alternative titles and tags (1 extra request)",
   "useNotesTracking": "Use Notes For Progress Tracking",
-  "useNotesTrackingDesc": "Store progress in notes field (more reliable)",
+  "useNotesTrackingDesc": "Store progress in notes field, more reliable than notes (1 extra request)",
   "enableEitherMethod": "Enable either notes tracking or mark chapters",
+  "preserveUserNotes": "Preserve User Notes",
+  "preserveUserNotesDesc": "Keep existing notes when updating progress (1 extra request)",
     "information": "Information",
     "howItWorks": "How it works",
     "howItWorksDesc": "Sync always keeps the highest progress: if App has 15, Tracker A has 20, Tracker B has 30, all will be updated to 30",
