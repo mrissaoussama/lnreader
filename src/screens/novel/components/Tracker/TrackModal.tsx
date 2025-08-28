@@ -246,11 +246,23 @@ const TrackModal: React.FC<TrackModalProps> = ({
   }, [novel.id]);
 
   const handleUpdateAllConfirm = useCallback(
-    async (targetProgress: number) => {
+    async (targetProgress: number, targetVolume?: number) => {
       try {
-        const toUpdate = tracks.filter(
-          t => t.lastChapterRead !== targetProgress,
-        );
+        const toUpdate = tracks.filter(t => {
+          if (t.lastChapterRead !== targetProgress) return true;
+          if (typeof targetVolume === 'number') {
+            try {
+              if (t.metadata) {
+                const md = JSON.parse(t.metadata);
+                if (typeof md.currentVolume === 'number') {
+                  return md.currentVolume !== targetVolume;
+                }
+              }
+            } catch {}
+            return true;
+          }
+          return false;
+        });
         if (!toUpdate.length) {
           showToast('No trackers need updating');
           return;
@@ -259,6 +271,7 @@ const TrackModal: React.FC<TrackModalProps> = ({
         const { success, failed } = await bulkUpdateTrackProgress({
           tracks: toUpdate,
           targetProgress,
+          targetVolume,
           getTrackerAuth,
           novelId: novel.id,
           onAltTitle: async (title: string) => {

@@ -1196,47 +1196,51 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
     notesTrackingEnabled &&
     (payload.progress !== undefined || payload.volume !== undefined)
   ) {
-    const getNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
-    const getNotesBody = `action=wi_notestagsfic&strSID=${novelId}`;
-
-    const getNotesResponse = await fetchApi(getNotesUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: getNotesBody,
-    });
+    const preserveUserNotes =
+      MMKVStorage.getBoolean('novelupdates_preserve_user_notes') ?? true;
 
     let existingTags = '';
     let existingNotes = '';
 
-    try {
-      const responseText = await getNotesResponse.text();
+    if (preserveUserNotes) {
+      const getNotesUrl = `${NOVEL_UPDATES_BASE_URL}/wp-admin/admin-ajax.php`;
+      const getNotesBody = `action=wi_notestagsfic&strSID=${novelId}`;
 
-      if (
-        responseText.includes('<html>') ||
-        responseText.includes('<body>') ||
-        responseText.includes('<!DOCTYPE')
-      ) {
+      const getNotesResponse = await fetchApi(getNotesUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: getNotesBody,
+      });
+      try {
+        const responseText = await getNotesResponse.text();
+
+        if (
+          responseText.includes('<html>') ||
+          responseText.includes('<body>') ||
+          responseText.includes('<!DOCTYPE')
+        ) {
+          existingTags = '';
+          existingNotes = '';
+        } else {
+          let cleanResponse = responseText.trim();
+          const jsonMatch = cleanResponse.match(/^(\{.*\})/);
+          if (jsonMatch) {
+            cleanResponse = jsonMatch[1];
+          }
+
+          try {
+            const notesData = JSON.parse(cleanResponse);
+            existingTags = notesData.tags || '';
+            existingNotes = notesData.notes || '';
+          } catch (jsonError) {
+            existingTags = '';
+            existingNotes = responseText.trim();
+          }
+        }
+      } catch (error) {
         existingTags = '';
         existingNotes = '';
-      } else {
-        let cleanResponse = responseText.trim();
-        const jsonMatch = cleanResponse.match(/^(\{.*\})/);
-        if (jsonMatch) {
-          cleanResponse = jsonMatch[1];
-        }
-
-        try {
-          const notesData = JSON.parse(cleanResponse);
-          existingTags = notesData.tags || '';
-          existingNotes = notesData.notes || '';
-        } catch (jsonError) {
-          existingTags = '';
-          existingNotes = responseText.trim();
-        }
       }
-    } catch (error) {
-      existingTags = '';
-      existingNotes = '';
     }
 
     const totalChaptersRead =
@@ -1246,8 +1250,13 @@ const updateUserListEntry: Tracker['updateUserListEntry'] = async (
         ? ((payload as any).volume as number)
         : undefined;
 
-    const baseNotes =
-      typeof payload.notes === 'string' ? payload.notes : existingNotes;
+    let baseNotes: string;
+    if (preserveUserNotes) {
+      baseNotes = existingNotes;
+    } else {
+      baseNotes = typeof payload.notes === 'string' ? payload.notes : '';
+    }
+
     const updatedNotes = updateTrackingInNotes(
       baseNotes,
       totalChaptersRead,

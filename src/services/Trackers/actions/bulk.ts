@@ -1,10 +1,11 @@
-import { updateUserListEntry } from '../index';
+import { trackers, updateUserListEntry } from '../index';
 import { addAlternativeTitle } from '@database/queries/NovelQueries';
 import { updateTrack } from '@database/queries/TrackQueries';
 
 export async function bulkUpdateTrackProgress(params: {
   tracks: any[];
   targetProgress: number;
+  targetVolume?: number;
   getTrackerAuth: (source: string) => any;
   novelId?: number | string;
   onAltTitle?: (title: string) => Promise<void> | void;
@@ -13,6 +14,7 @@ export async function bulkUpdateTrackProgress(params: {
   const {
     tracks,
     targetProgress,
+    targetVolume,
     getTrackerAuth,
     novelId,
     onAltTitle,
@@ -22,17 +24,48 @@ export async function bulkUpdateTrackProgress(params: {
   let failed = 0;
   for (const track of tracks) {
     try {
-      if (track.lastChapterRead === targetProgress) {
+      const chapterUnchanged = track.lastChapterRead === targetProgress;
+      let volumeUnchanged = true;
+      if (typeof targetVolume === 'number') {
+        try {
+          if (track.metadata) {
+            const md = JSON.parse(track.metadata);
+            if (typeof md.currentVolume === 'number') {
+              volumeUnchanged = md.currentVolume === targetVolume;
+            } else {
+              volumeUnchanged = false;
+            }
+          } else {
+            volumeUnchanged = false;
+          }
+        } catch {
+          volumeUnchanged = false;
+        }
+      }
+      if (
+        chapterUnchanged &&
+        (typeof targetVolume !== 'number' || volumeUnchanged)
+      ) {
         continue;
       }
       const auth = getTrackerAuth(track.source);
       if (!auth) {
         throw new Error(`Not logged in to ${track.source}`);
       }
+      const trackerImpl = (trackers as any)?.[track.source];
+      const payload: any = { progress: targetProgress };
+      if (
+        typeof targetVolume === 'number' &&
+        !isNaN(targetVolume) &&
+        trackerImpl?.capabilities?.supportsVolumes
+      ) {
+        payload.volume = targetVolume;
+      }
+
       const updateResult = await updateUserListEntry(
         track.source,
         track.sourceId,
-        { progress: targetProgress },
+        payload,
         auth,
       );
       if (
