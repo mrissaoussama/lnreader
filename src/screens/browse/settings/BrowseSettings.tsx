@@ -128,23 +128,25 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
             </List.SubHeader>
             <SwitchItem
               label={getString('libraryMatching.matchLibraryAndBrowse')}
-              value={novelMatching.enabled ?? false}
+              value={novelMatching?.enabled ?? false}
               onPress={() =>
                 setBrowseSettings({
                   novelMatching: {
-                    ...novelMatching,
-                    enabled: !novelMatching.enabled,
+                    ...(novelMatching ?? {}),
+                    enabled: !novelMatching?.enabled,
                   },
                 })
               }
               theme={theme}
               style={styles.item}
             />
-            {novelMatching.enabled && (
+            {novelMatching?.enabled && (
               <>
                 <List.Item
                   title={getString('libraryMatching.matchingRule')}
-                  description={`${novelMatching.pluginRule}, ${novelMatching.libraryRule}`}
+                  description={`${novelMatching?.pluginRule ?? ''}, ${
+                    novelMatching?.libraryRule ?? ''
+                  }`}
                   onPress={libraryMatchingRuleModal.setTrue}
                   theme={theme}
                 />
