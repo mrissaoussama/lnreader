@@ -182,20 +182,12 @@ export const createBackup = async (
       );
     }
 
-    const zipFileUri = 'file://' + zipPath;
-
     try {
       if (!(await NativeFile.exists(zipPath))) {
         throw new Error('Backup zip file was not created');
       }
 
-      const zipData = await FileSystem.readAsStringAsync(zipFileUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      await FileSystem.writeAsStringAsync(fileUri, zipData, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      await NativeFile.copyFile(zipPath, fileUri);
 
       const backupTypeText = includeDownloads ? ' (with downloads)' : '';
 
@@ -491,11 +483,7 @@ export const restoreBackup = async (
           await NativeFile.unlink(tempZipPath);
         }
 
-        const zipData = await FileSystem.readAsStringAsync(backupFile.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        await NativeFile.writeFile(tempZipPath, zipData);
+        await NativeFile.copyFile(backupFile.uri, tempZipPath);
 
         if (!(await NativeFile.exists(tempZipPath))) {
           throw new Error('Failed to create temporary backup file');
