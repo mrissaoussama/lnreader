@@ -4,6 +4,9 @@ import { Button, Dialog, Portal, TextInput } from 'react-native-paper';
 import { useTheme } from '@hooks/persisted';
 import { getString } from '@strings/translations';
 import ServiceManager from '@services/ServiceManager';
+import { MassImportReportModal } from './MassImportReportModal';
+import { getMMKVObject } from '@utils/mmkv/mmkv';
+import { ImportResult } from '@services/updates/massImport';
 
 interface MassImportModalProps {
   visible: boolean;
@@ -19,12 +22,22 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
   const theme = useTheme();
   const [text, setText] = useState(initialText);
   const [delay, setDelay] = useState('500');
+  const [reportModalVisible, setReportModalVisible] = useState(false);
 
   useEffect(() => {
     if (visible && initialText) {
       setText(initialText);
     }
   }, [visible, initialText]);
+
+  const hasReportData = (): boolean => {
+    const result = getMMKVObject<ImportResult>('LAST_MASS_IMPORT_RESULT');
+    return result
+      ? result.added?.length > 0 ||
+          result.skipped?.length > 0 ||
+          result.errored?.length > 0
+      : false;
+  };
 
   const preprocessUrls = (inputText: string): string[] => {
     const normalizedText = inputText.replace(
@@ -93,6 +106,15 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
           />
         </Dialog.Content>
         <Dialog.Actions>
+          {hasReportData() && (
+            <Button
+              onPress={() => setReportModalVisible(true)}
+              theme={{ colors: { primary: theme.primary } }}
+              labelStyle={{ color: theme.onSurface }}
+            >
+              View Last Report
+            </Button>
+          )}
           <Button
             onPress={handleCancel}
             theme={{ colors: { primary: theme.primary } }}
@@ -109,6 +131,10 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
           </Button>
         </Dialog.Actions>
       </Dialog>
+      <MassImportReportModal
+        visible={reportModalVisible}
+        onDismiss={() => setReportModalVisible(false)}
+      />
     </Portal>
   );
 };
