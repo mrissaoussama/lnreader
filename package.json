@@ -25,7 +25,7 @@
     "android": {
       "javaPackageName": "com.lnreader.spec"
     },
-    "ios": { 
+    "ios": {
       "modulesProvider": {
         "NativeEpubUtil": "RCTNativeEpubUtil",
         "NativeFile": "RCTNativeFile",
@@ -47,6 +47,7 @@
     "@react-navigation/native-stack": "^7.3.0",
     "@react-navigation/stack": "^7.3.0",
     "@shopify/flash-list": "1.8.0",
+    "async-mutex": "^0.5.0",
     "cheerio": "1.0.0-rc.12",
     "color": "^5.0.0",
     "dayjs": "^1.11.10",

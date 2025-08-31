@@ -24,8 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrowseSourceScreenProps } from '@navigators/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
 import ServiceManager from '@services/ServiceManager';
-import { showToast } from '@utils/showToast';
-import * as Clipboard from 'expo-clipboard';
+import MassImportModal from '@screens/library/components/MassImportModal/MassImportModal';
 
 // Optimized novel item component to improve performance, no rerenders ect
 const OptimizedNovelItem = React.memo<{
@@ -155,6 +154,9 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const [selectedItems, setSelectedItems] = useState<(NovelItem | NovelInfo)[]>(
     [],
   );
+  const [isMassImportModalVisible, setIsMassImportModalVisible] =
+    useState(false);
+  const [massImportUrls, setMassImportUrls] = useState<string>('');
 
   const { hideInLibraryItems, enableAdvancedFilters } = useBrowseSettings();
 
@@ -199,8 +201,6 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   };
 
   const handleImportSelected = useCallback(async () => {
-    showToast(`Import button pressed with ${selectedItems.length} items`);
-
     if (selectedItems.length === 0) return;
 
     const urls = selectedItems.map(item => {
@@ -208,21 +208,8 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     });
 
     const urlsText = urls.join('\n');
-    await Clipboard.setStringAsync(urlsText);
-
-    ServiceManager.manager.addTask({
-      name: 'MASS_IMPORT',
-      data: { urls },
-    });
-
-    showToast(
-      getString('browseScreen.urlsCopiedAndImported', {
-        count: selectedItems.length,
-      }),
-    );
-
-    setIsMultiSelectMode(false);
-    setSelectedItems([]);
+    setMassImportUrls(urlsText);
+    setIsMassImportModalVisible(true);
   }, [selectedItems, site]);
 
   const selectAllItems = useCallback(() => {
@@ -467,6 +454,17 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
           onSheetChange={isOpen => setIsFilterSheetOpen(isOpen)}
         />
       ) : null}
+
+      <MassImportModal
+        visible={isMassImportModalVisible}
+        closeModal={() => {
+          setIsMassImportModalVisible(false);
+          setMassImportUrls('');
+          setIsMultiSelectMode(false);
+          setSelectedItems([]);
+        }}
+        initialText={massImportUrls}
+      />
     </SafeAreaView>
   );
 };

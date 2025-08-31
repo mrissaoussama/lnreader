@@ -13,6 +13,10 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
 import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
+import { Mutex } from 'async-mutex';
+
+// Single mutex to serialize DB write sections and avoid SQLITE_BUSY / locked errors.
+const dbMutex = new Mutex();
 
 export interface ImportResult {
   added: { name: string; url: string }[];
@@ -39,14 +43,12 @@ const processUrl = async (
 
     if (!plugin) {
       const error = 'No plugin found';
-      showToast(`No plugin found for: ${url}`);
       results.errored.push({ name: url, url, error });
       return;
     }
 
     if (plugin.id === LOCAL_PLUGIN_ID) {
       const error = 'Cannot import from local plugin';
-      showToast(error + `: ${url}`);
       results.errored.push({ name: url, url, error });
       return;
     }
@@ -55,51 +57,48 @@ const processUrl = async (
     if (url.startsWith(plugin.site)) {
       novelPath = extractPathFromUrl(url, plugin.site);
     }
-    // Normalize for consistent DB behavior
     const normalizedPath = normalizePath(novelPath);
 
-    try {
-      const novel = await fetchNovel(plugin.id, novelPath);
-      if (!novel) {
-        const error = 'Failed to fetch novel data';
-        showToast(`${error}: ${url}`);
+    const novel = await fetchNovel(plugin.id, novelPath);
+    if (!novel) {
+      const error = 'Failed to fetch novel data';
+      results.errored.push({ name: url, url, error });
+      return;
+    }
+
+    if (
+      !novel.name ||
+      typeof novel.name !== 'string' ||
+      novel.name.trim() === ''
+    ) {
+      const urlSegments = url.split('/');
+      const lastSegment = urlSegments[urlSegments.length - 1];
+      const fallbackName = lastSegment
+        .replace('.html', '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase())
+        .trim();
+
+      if (fallbackName && fallbackName.length > 0) {
+        novel.name = fallbackName;
+      } else {
+        const error = 'Failed to extract novel name';
         results.errored.push({ name: url, url, error });
         return;
       }
+    }
 
-      if (
-        !novel.name ||
-        typeof novel.name !== 'string' ||
-        novel.name.trim() === ''
-      ) {
-        const urlSegments = url.split('/');
-        const lastSegment = urlSegments[urlSegments.length - 1];
-        const fallbackName = lastSegment
-          .replace('.html', '')
-          .replace(/-/g, ' ')
-          .replace(/\b\w/g, l => l.toUpperCase())
-          .trim();
+    if (!novel.path || typeof novel.path !== 'string') {
+      novel.path = normalizedPath;
+    } else if (novel.path !== novelPath) {
+      novel.path = normalizePath(extractPathFromUrl(novel.path, plugin.site));
+    }
 
-        if (fallbackName && fallbackName.length > 0) {
-          novel.name = fallbackName;
-        } else {
-          const error = 'Failed to extract novel name';
-          showToast(`${error} from: ${url}`);
-          results.errored.push({ name: url, url, error });
-          return;
-        }
-      }
+    if (!Array.isArray(novel.chapters)) {
+      novel.chapters = [];
+    }
 
-      if (!novel.path || typeof novel.path !== 'string') {
-        novel.path = normalizedPath;
-      } else if (novel.path !== novelPath) {
-        novel.path = normalizePath(extractPathFromUrl(novel.path, plugin.site));
-      }
-
-      if (!Array.isArray(novel.chapters)) {
-        novel.chapters = [];
-      }
-
+    await dbMutex.runExclusive(async () => {
       try {
         const existingNovel = await db.getFirstAsync<{
           id: number;
@@ -126,11 +125,11 @@ const processUrl = async (
           }
           return;
         }
+
         const novelId = await insertNovelAndChapters(plugin.id, {
           ...novel,
           path: normalizedPath,
         });
-
         if (novelId) {
           const result = await switchNovelToLibraryQuery(
             normalizedPath,
@@ -153,10 +152,7 @@ const processUrl = async (
           error: insertError.message,
         });
       }
-    } catch (fetchError: any) {
-      const error = `Plugin error: ${plugin.name} ${fetchError.message}`;
-      results.errored.push({ name: url, url, error: error });
-    }
+    });
   } catch (error: any) {
     results.errored.push({ name: url, url, error: error.message });
   }

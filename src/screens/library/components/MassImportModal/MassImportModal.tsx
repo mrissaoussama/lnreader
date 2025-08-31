@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { Button, Dialog, Portal, TextInput } from 'react-native-paper';
 import { useTheme } from '@hooks/persisted';
@@ -8,15 +8,23 @@ import ServiceManager from '@services/ServiceManager';
 interface MassImportModalProps {
   visible: boolean;
   closeModal: () => void;
+  initialText?: string;
 }
 
 const MassImportModal: React.FC<MassImportModalProps> = ({
   visible,
   closeModal,
+  initialText = '',
 }) => {
   const theme = useTheme();
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const [delay, setDelay] = useState('500');
+
+  useEffect(() => {
+    if (visible && initialText) {
+      setText(initialText);
+    }
+  }, [visible, initialText]);
 
   const preprocessUrls = (inputText: string): string[] => {
     const normalizedText = inputText.replace(
