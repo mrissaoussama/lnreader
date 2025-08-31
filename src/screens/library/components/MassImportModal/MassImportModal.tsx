@@ -16,6 +16,7 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
 }) => {
   const theme = useTheme();
   const [text, setText] = useState('');
+  const [delay, setDelay] = useState('500');
 
   const preprocessUrls = (inputText: string): string[] => {
     const normalizedText = inputText.replace(
@@ -31,21 +32,24 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
 
   const handleImport = () => {
     const urls = preprocessUrls(text);
+    const delayMs = parseInt(delay, 10) || 500;
 
     if (urls.length > 0) {
       ServiceManager.manager.addTask({
         name: 'MASS_IMPORT',
-        data: { urls },
+        data: { urls, delay: delayMs },
       });
     }
 
     closeModal();
     setText('');
+    setDelay('500');
   };
 
   const handleCancel = () => {
     closeModal();
     setText('');
+    setDelay('500');
   };
 
   return (
@@ -67,6 +71,16 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
             placeholder={getString('libraryScreen.massImportModal.placeholder')}
             style={styles.textInput}
             contentStyle={styles.textInputContent}
+            theme={{ colors: { ...theme } }}
+          />
+          <TextInput
+            value={delay}
+            onChangeText={setDelay}
+            keyboardType="numeric"
+            placeholder="500"
+            label={getString('libraryScreen.massImportModal.delayLabel')}
+            right={<TextInput.Affix text="ms" />}
+            style={styles.delayInput}
             theme={{ colors: { ...theme } }}
           />
         </Dialog.Content>
@@ -99,6 +113,9 @@ const styles = StyleSheet.create({
     height: 200,
     textAlignVertical: 'top',
     paddingTop: 12,
+  },
+  delayInput: {
+    marginTop: 16,
   },
 });
 

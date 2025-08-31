@@ -435,7 +435,9 @@
     "searchbar": "Search library",
     "massImportModal": {
       "title": "Bulk Import",
-      "placeholder": "Enter novel URLs separated by new lines or spaces"
+      "placeholder": "Enter novel URLs separated by new lines or spaces",
+      "delayLabel": "Delay between same domain fetches (ms)",
+      "delayHint": "Default: 500ms"
     }
   },
   "more": "More",
