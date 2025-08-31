@@ -4,35 +4,81 @@ import { LOCAL_PLUGIN_ID, getPlugin, plugins } from '@plugins/pluginManager';
 import { db } from '@database/db';
 import NativeFile from '@specs/NativeFile';
 import { fetchNovel } from '@services/plugin/fetch';
-import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import ServiceManager, {
+  BackgroundTaskMetadata,
+} from '@services/ServiceManager';
 import { sleep } from '@utils/sleep';
-import {
-  insertNovelAndChapters,
-  switchNovelToLibraryQuery,
-} from '@database/queries/NovelQueries';
+import { insertNovelAndChapters } from '@database/queries/NovelQueries';
 import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
 import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
-import { Mutex } from 'async-mutex';
 import { setMMKVObject } from '@utils/mmkv/mmkv';
 
-// Single mutex to serialize DB write sections and avoid SQLITE_BUSY / locked errors.
-const dbMutex = new Mutex();
+// Simple retry for database operations
+const simpleRetry = async <T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+): Promise<T> => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries - 1;
+      const isDbBusyError =
+        error.message?.includes('SQLITE_BUSY') ||
+        error.message?.includes('database is locked') ||
+        error.code === 'SQLITE_BUSY';
 
+      if (isDbBusyError && !isLastAttempt) {
+        await sleep(50 + Math.random() * 50); // Random 50-100ms delay
+        continue;
+      }
+
+      throw error;
+    }
+  }
+  throw new Error('Operation failed after retries');
+};
 export interface ImportResult {
   added: { name: string; url: string }[];
   skipped: { name: string; url: string }[];
   errored: { name: string; url: string; error: string }[];
+  staged: { name: string; url: string; novelId: number }[]; // New: novels ready to be added to library
 }
 
 export { plugins } from '@plugins/pluginManager';
+
+// Export utility functions for copying errored results
+export const copyErroredWithErrors = (
+  erroredItems: { name: string; url: string; error: string }[],
+) => {
+  const erroredText = erroredItems
+    .map(item => `${item.name}: ${item.url} (Error: ${item.error})`)
+    .join('\n');
+  Clipboard.setStringAsync(erroredText);
+  showToast('Errored novels with errors copied to clipboard');
+};
+
+export const copyErroredLinksOnly = (
+  erroredItems: { name: string; url: string; error: string }[],
+) => {
+  const linksText = erroredItems.map(item => item.url).join('\n');
+  Clipboard.setStringAsync(linksText);
+  showToast('Errored URLs copied to clipboard');
+};
 
 const processUrl = async (
   url: string,
   workingPlugins: Plugin[],
   results: ImportResult,
+  taskId?: string, // Add taskId for cancellation checks
 ) => {
   try {
+    // Check for cancellation at the start
+    if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+      return; // Early exit if cancelled
+    }
+
     const plugin = workingPlugins.find(p => {
       if (!p || !p.site || typeof p.site !== 'string') {
         return false;
@@ -75,12 +121,22 @@ const processUrl = async (
       return;
     }
 
+    // Check for cancellation before network request
+    if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+      return; // Early exit if cancelled
+    }
+
     // Fetch (network) first – not serialized so we keep parallelism.
     const novel = await fetchNovel(plugin.id, novelPath);
     if (!novel) {
       const error = 'Failed to fetch novel data';
       results.errored.push({ name: url, url, error });
       return;
+    }
+
+    // Check for cancellation after network request
+    if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+      return; // Early exit if cancelled
     }
 
     if (
@@ -115,61 +171,63 @@ const processUrl = async (
       novel.chapters = [];
     }
 
-    await dbMutex.runExclusive(async () => {
-      try {
-        const existingNovel = await db.getFirstAsync<{
+    // Database operations with simple retry (no mutex needed for better performance)
+    try {
+      // Check for cancellation before DB operations
+      if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+        return; // Early exit if cancelled
+      }
+
+      const existingNovel = await simpleRetry(async () => {
+        return await db.getFirstAsync<{
           id: number;
           inLibrary: number;
         }>(
           'SELECT id, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
           [plugin.id, normalizedPath, '/' + normalizedPath],
         );
+      });
 
-        if (existingNovel) {
-          if (existingNovel.inLibrary) {
-            results.skipped.push({ name: novel.name, url });
-          } else {
-            const result = await switchNovelToLibraryQuery(
-              normalizedPath,
-              plugin.id,
-            );
-            if (result?.inLibrary) {
-              results.added.push({ name: novel.name, url });
-            } else {
-              const error = `Failed to add existing novel to library: ${novel.name}`;
-              results.errored.push({ name: novel.name, url, error });
-            }
-          }
-          return;
+      if (existingNovel) {
+        if (existingNovel.inLibrary) {
+          results.skipped.push({ name: novel.name, url });
+        } else {
+          // Stage the existing novel (don't add to library yet)
+          results.staged.push({
+            name: novel.name,
+            url,
+            novelId: existingNovel.id,
+          });
         }
+        return;
+      }
 
-        const novelId = await insertNovelAndChapters(plugin.id, {
+      // Insert novel but don't add to library yet (inLibrary = 0 by default)
+      const novelId = await simpleRetry(async () => {
+        return await insertNovelAndChapters(plugin.id, {
           ...novel,
           path: normalizedPath,
         });
-        if (novelId) {
-          const result = await switchNovelToLibraryQuery(
-            normalizedPath,
-            plugin.id,
-          );
-          if (result?.inLibrary) {
-            results.added.push({ name: novel.name, url });
-          } else {
-            const error = 'Novel imported but failed to add to library';
-            results.errored.push({ name: novel.name, url, error });
-          }
-        } else {
-          const error = 'Failed to insert novel';
-          results.errored.push({ name: novel.name, url, error });
-        }
-      } catch (insertError: any) {
-        results.errored.push({
+      });
+
+      if (novelId) {
+        // Stage the novel for library addition
+        results.staged.push({
           name: novel.name,
           url,
-          error: insertError.message,
+          novelId: novelId,
         });
+      } else {
+        const error = 'Failed to insert novel';
+        results.errored.push({ name: novel.name, url, error });
       }
-    });
+    } catch (insertError: any) {
+      results.errored.push({
+        name: novel.name,
+        url,
+        error: insertError.message,
+      });
+    }
   } catch (error: any) {
     results.errored.push({ name: url, url, error: error.message });
   }
@@ -180,6 +238,7 @@ export const massImport = async (
   setMeta: (
     transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
   ) => void,
+  taskId?: string, // Add taskId parameter for cancellation checks
 ) => {
   if (!data || typeof data !== 'object') {
     const errorMsg =
@@ -204,7 +263,8 @@ export const massImport = async (
 
   const domainDelay = data.delay || 500;
 
-  const urls = data.urls
+  // Process and filter URLs
+  const rawUrls = data.urls
     .flatMap((input: string) => {
       if (!input || typeof input !== 'string') {
         return [];
@@ -216,8 +276,10 @@ export const massImport = async (
         .filter(url => url !== '');
     })
     .map((url: string) => {
+      // Remove trailing punctuation that might be copied accidentally
       let cleanUrl = url.replace(/[.,;!?]+$/, '');
 
+      // Add https:// if no protocol specified
       if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
         cleanUrl = 'https://' + cleanUrl;
       }
@@ -226,17 +288,39 @@ export const massImport = async (
     })
     .filter(
       (url: string, index: number, array: string[]) =>
-        array.indexOf(url) === index,
+        array.indexOf(url) === index, // Remove duplicates
     );
 
+  // Count filtered out items for reporting (only duplicates now)
+  const totalInputCount = data.urls.reduce((count: number, input: string) => {
+    if (!input || typeof input !== 'string') return count;
+    return (
+      count + input.split(/[\s\n]+/).filter(url => url.trim() !== '').length
+    );
+  }, 0);
+
+  const filteredCount = totalInputCount - rawUrls.length;
+
+  const urls = rawUrls;
+
   if (urls.length === 0) {
-    const errorMsg = 'Mass import failed: No valid URLs provided';
+    const errorMsg =
+      filteredCount > 0
+        ? `Mass import failed: No URLs found (${filteredCount} filtered out as duplicates)`
+        : 'Mass import failed: No URLs provided';
     showToast(errorMsg);
     setMeta(meta => ({
       ...meta,
       isRunning: false,
     }));
     return;
+  }
+
+  // Show filtering stats if any duplicates were filtered
+  if (filteredCount > 0) {
+    showToast(
+      `Removed ${filteredCount} duplicate URLs. Processing ${urls.length} URLs.`,
+    );
   }
 
   setMeta(meta => ({
@@ -274,6 +358,7 @@ export const massImport = async (
       added: [],
       skipped: [],
       errored: [],
+      staged: [],
     };
 
     const urlsToProcess: string[] = [];
@@ -312,13 +397,15 @@ export const massImport = async (
         }
         const normalizedPath = normalizePath(novelPath);
 
-        const preCheckNovel = await db.getFirstAsync<{
-          name: string;
-          inLibrary: number;
-        }>(
-          'SELECT name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
-          [plugin.id, normalizedPath, '/' + normalizedPath],
-        );
+        const preCheckNovel = await simpleRetry(async () => {
+          return await db.getFirstAsync<{
+            name: string;
+            inLibrary: number;
+          }>(
+            'SELECT name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+            [plugin.id, normalizedPath, '/' + normalizedPath],
+          );
+        });
 
         if (preCheckNovel?.inLibrary) {
           results.skipped.push({ name: preCheckNovel.name, url });
@@ -352,6 +439,16 @@ export const massImport = async (
     const domainPromises = Object.values(urlsByDomain).map(
       async (urlGroup: string[]) => {
         for (let i = 0; i < urlGroup.length; i++) {
+          // Check for cancellation before each URL
+          if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+            setMeta(meta => ({
+              ...meta,
+              isRunning: false,
+              progressText: 'Mass import cancelled',
+            }));
+            return;
+          }
+
           const url = urlGroup[i];
           setMeta(meta => ({
             ...meta,
@@ -359,7 +456,7 @@ export const massImport = async (
             progress: processedCount / totalUrls,
           }));
 
-          await processUrl(url, workingPlugins, results);
+          await processUrl(url, workingPlugins, results, taskId); // Pass taskId
           processedCount++;
 
           // Apply delay between same domain fetches, but not after the last URL in the group
@@ -371,6 +468,111 @@ export const massImport = async (
     );
 
     await Promise.all(domainPromises);
+
+    // Check if cancelled after processing
+    if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+      setMeta(meta => ({
+        ...meta,
+        isRunning: false,
+        progressText: 'Mass import cancelled',
+      }));
+      return;
+    }
+
+    // Now add staged novels to library in batches to reduce DB locks
+    if (results.staged.length > 0) {
+      setMeta(meta => ({
+        ...meta,
+        progressText: `Adding ${results.staged.length} novels to library in batches...`,
+      }));
+
+      const BATCH_SIZE = 50;
+      const batches: (typeof results.staged)[] = [];
+
+      // Split staged novels into batches
+      for (let i = 0; i < results.staged.length; i += BATCH_SIZE) {
+        batches.push(results.staged.slice(i, i + BATCH_SIZE));
+      }
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+
+        if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+          break; // Stop if cancelled during library addition
+        }
+
+        setMeta(meta => ({
+          ...meta,
+          progressText: `Adding batch ${batchIndex + 1}/${batches.length} (${
+            batch.length
+          } novels)...`,
+        }));
+
+        try {
+          // Process entire batch in a single transaction for better performance
+          await simpleRetry(async () => {
+            await db.withTransactionAsync(async () => {
+              for (const stagedNovel of batch) {
+                // Update novel to be in library
+                await db.runAsync(
+                  'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
+                  [stagedNovel.novelId],
+                );
+
+                // Add to default category
+                await db.runAsync(
+                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                  [stagedNovel.novelId],
+                );
+              }
+            });
+          });
+
+          // Mark all novels in this batch as successfully added
+          batch.forEach(stagedNovel => {
+            results.added.push({
+              name: stagedNovel.name,
+              url: stagedNovel.url,
+            });
+          });
+        } catch (error: any) {
+          // If batch fails, try individual items to see which ones work
+          for (const stagedNovel of batch) {
+            if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
+              break;
+            }
+
+            try {
+              await simpleRetry(async () => {
+                await db.runAsync(
+                  'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
+                  [stagedNovel.novelId],
+                );
+
+                await db.runAsync(
+                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                  [stagedNovel.novelId],
+                );
+              });
+
+              results.added.push({
+                name: stagedNovel.name,
+                url: stagedNovel.url,
+              });
+            } catch (individualError: any) {
+              results.errored.push({
+                name: stagedNovel.name,
+                url: stagedNovel.url,
+                error: `Failed to add to library: ${individualError.message}`,
+              });
+            }
+          }
+        }
+      }
+
+      // Clear staged array since they're now added or errored
+      results.staged = [];
+    }
 
     const getSummaryText = (localResults: ImportResult) => {
       let summary = `ADDED (${localResults.added.length}):\n`;
@@ -392,24 +594,46 @@ export const massImport = async (
       return summary;
     };
 
+    // Store additional copy functions in the results for MassImportReportModal
+    const enhancedResults = {
+      ...results,
+      copyErroredWithErrors: () => {
+        const erroredText = results.errored
+          .map(item => `${item.name}: ${item.url} (Error: ${item.error})`)
+          .join('\n');
+        Clipboard.setStringAsync(erroredText);
+        showToast('Errored novels with errors copied to clipboard');
+      },
+      copyErroredLinksOnly: () => {
+        const linksText = results.errored.map(item => item.url).join('\n');
+        Clipboard.setStringAsync(linksText);
+        showToast('Errored URLs copied to clipboard');
+      },
+      copyAllSummary: () => {
+        const summaryText = getSummaryText(results);
+        Clipboard.setStringAsync(summaryText);
+        showToast('Full import summary copied to clipboard');
+      },
+    };
+
     const summaryText = getSummaryText(results);
     Clipboard.setStringAsync(summaryText);
 
     const finalMessage = `Mass import completed. Added: ${results.added.length}, Skipped: ${results.skipped.length}, Errored: ${results.errored.length}`;
     showToast(finalMessage + '. ' + getString('common.copiedToClipboard'));
 
-    setMMKVObject('LAST_MASS_IMPORT_RESULT', results);
+    setMMKVObject('LAST_MASS_IMPORT_RESULT', enhancedResults);
 
     setMeta(meta => ({
       ...meta,
       progress: 1,
       progressText: finalMessage,
       isRunning: false,
-      result: results,
+      result: enhancedResults,
     }));
 
     const { MMKV } = require('@utils/mmkv/mmkv');
-    MMKV.set('LAST_MASS_IMPORT_RESULT', JSON.stringify(results));
+    MMKV.set('LAST_MASS_IMPORT_RESULT', JSON.stringify(enhancedResults));
   } catch (error: any) {
     showToast(`Mass import failed: ${error.message}`);
     setMeta(meta => ({

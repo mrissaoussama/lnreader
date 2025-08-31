@@ -94,6 +94,7 @@ export interface LibrarySettings {
   novelsPerRow?: number;
   incognitoMode?: boolean;
   downloadedOnlyMode?: boolean;
+  libraryLoadLimit?: number; // Number of novels to load at once in library
 }
 
 export interface ChapterGeneralSettings {
@@ -279,6 +280,7 @@ const defaultLibrarySettings: LibrarySettings = {
   showNotesBadges: true,
   novelsPerRow: 3,
   sortOrder: LibrarySortOrder.DateAdded_DESC,
+  libraryLoadLimit: 50, // Default to 50 novels per load
 };
 
 export const useLibrarySettings = () => {

@@ -100,6 +100,7 @@ export default class ServiceManager {
   currentPendingUpdate = 0;
   private static instance?: ServiceManager;
   private listeners: { [key: string]: TaskListListener[] } = {};
+  private cancelledTasks: Set<string> = new Set(); // Track cancelled tasks
 
   private constructor() {}
 
@@ -306,7 +307,7 @@ export default class ServiceManager {
           typeof data.delay === 'number'
             ? (data as { urls: string[]; delay: number })
             : { urls: [], delay: 500 };
-        return massImport(massImportData, this.setMeta.bind(this));
+        return massImport(massImportData, this.setMeta.bind(this), task.id);
       }
       case 'SYNC_FROM_TRACKERS': {
         const data = task.task.data;
@@ -611,6 +612,32 @@ export default class ServiceManager {
 
   clearTaskList() {
     this.updateTaskList([]);
+  }
+
+  cancelTask(taskName: taskNames) {
+    const taskList = this.getTaskList();
+    const taskToCancel = taskList.find(t => t.task.name === taskName);
+
+    if (taskToCancel) {
+      // Mark task as cancelled
+      this.cancelledTasks.add(taskToCancel.id);
+
+      // Remove from task list
+      this.updateTaskList(
+        taskList.filter(t => t.id !== taskToCancel.id),
+        taskName,
+      );
+
+      // If it was the first task (currently running), we need to stop and restart
+      if (taskList[0]?.id === taskToCancel.id) {
+        this.pause();
+        setTimeout(() => this.resume(), 100);
+      }
+    }
+  }
+
+  isTaskCancelled(taskId: string): boolean {
+    return this.cancelledTasks.has(taskId);
   }
 
   pause() {

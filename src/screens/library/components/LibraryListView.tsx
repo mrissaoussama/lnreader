@@ -28,6 +28,7 @@ interface Props {
   pickAndImport: () => void;
   isFocused?: boolean;
   libraryChangeKey?: number; // Add dependency to trigger reloads when library changes
+  onSelectAllVisible?: (novelIds: number[]) => void; // Add callback for select all visible
 }
 
 export const LibraryView: React.FC<Props> = ({
@@ -41,6 +42,7 @@ export const LibraryView: React.FC<Props> = ({
   navigation,
   isFocused = true,
   libraryChangeKey,
+  onSelectAllVisible,
 }) => {
   const theme = useTheme();
   const {
@@ -138,6 +140,13 @@ export const LibraryView: React.FC<Props> = ({
       loadNovels(true);
     }
   }, [isFocused, novels.length, loadNovels]);
+
+  // Notify parent component about visible novels for select all functionality
+  useEffect(() => {
+    if (onSelectAllVisible && novels.length > 0) {
+      onSelectAllVisible(novels.map(novel => novel.id));
+    }
+  }, [novels, onSelectAllVisible]);
 
   const memoizedNovels = useMemo(() => novels, [novels]);
   const { matches: libraryMatches } = useLibraryMatching({
