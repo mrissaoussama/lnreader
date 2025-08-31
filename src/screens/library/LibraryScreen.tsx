@@ -47,7 +47,6 @@ import { useLibraryContext } from '@components/Context/LibraryContext';
 import * as Clipboard from 'expo-clipboard';
 import TrackerSyncDialog from './components/TrackerSyncDialog';
 import { showToast } from '@utils/showToast';
-import { ImportResult } from '@services/updates/massImport';
 const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
   const { searchText, setSearchText, clearSearchbar } = useSearch();
   const theme = useTheme();
@@ -144,55 +143,6 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
   }, [categories, searchText, downloadedOnlyMode, filter]);
 
   useEffect(() => {
-    const getSummaryText = (results: ImportResult) => {
-      const timestamp = new Date().toLocaleString();
-      let summary = 'Mass Import Report\n';
-      summary += `Generated: ${timestamp}\n\n`;
-
-      summary += 'SUMMARY:\n';
-      summary += `Total URLs processed: ${
-        results.added.length + results.skipped.length + results.errored.length
-      }\n`;
-      summary += `Successfully added: ${results.added.length}\n`;
-      summary += `Already in library (skipped): ${results.skipped.length}\n`;
-      summary += `Failed with errors: ${results.errored.length}\n\n`;
-
-      if (results.added.length > 0) {
-        summary += `SUCCESSFULLY ADDED (${results.added.length}):\n`;
-        results.added.forEach(
-          item => (summary += `✅ ${item.name}\n   URL: ${item.url}\n\n`),
-        );
-      }
-
-      if (results.skipped.length > 0) {
-        summary += `ALREADY IN LIBRARY (${results.skipped.length}):\n`;
-        results.skipped.forEach(
-          item => (summary += `⏭️ ${item.name}\n   URL: ${item.url}\n\n`),
-        );
-      }
-
-      if (results.errored.length > 0) {
-        summary += `FAILED WITH ERRORS (${results.errored.length}):\n`;
-        results.errored.forEach(
-          item =>
-            (summary += `❌ ${item.name}\n   URL: ${item.url}\n   Error: ${item.error}\n\n`),
-        );
-      }
-
-      return summary;
-    };
-
-    const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
-      if (task && !task.meta.isRunning && task.meta.result) {
-        const summary = getSummaryText(task.meta.result);
-        Clipboard.setStringAsync(summary);
-        const results = task.meta.result;
-        showToast(
-          `Import: ✅${results.added.length} ⏭️${results.skipped.length} ❌${results.errored.length} | Report copied`,
-        );
-        refetchLibrary();
-      }
-    });
     const generateSyncReport = (results, type) => {
       const timestamp = new Date().toLocaleString();
       let report = `Tracker Sync Report (${type.toUpperCase()})\n`;
@@ -396,7 +346,6 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       }),
     ];
     return () => {
-      unsubscribe();
       syncObservers.forEach(unsub => unsub());
     };
   }, [refetchLibrary]);

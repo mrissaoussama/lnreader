@@ -14,6 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
 import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
 import { Mutex } from 'async-mutex';
+import { setMMKVObject } from '@utils/mmkv/mmkv';
 
 // Single mutex to serialize DB write sections and avoid SQLITE_BUSY / locked errors.
 const dbMutex = new Mutex();
@@ -57,8 +58,24 @@ const processUrl = async (
     if (url.startsWith(plugin.site)) {
       novelPath = extractPathFromUrl(url, plugin.site);
     }
+    // Normalize for consistent DB behavior
     const normalizedPath = normalizePath(novelPath);
 
+    // Check if the novel is already in the library to avoid fetching it again.
+    const preCheckNovel = await db.getFirstAsync<{
+      name: string;
+      inLibrary: number;
+    }>(
+      'SELECT name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+      [plugin.id, normalizedPath, '/' + normalizedPath],
+    );
+
+    if (preCheckNovel?.inLibrary) {
+      results.skipped.push({ name: preCheckNovel.name, url });
+      return;
+    }
+
+    // Fetch (network) first – not serialized so we keep parallelism.
     const novel = await fetchNovel(plugin.id, novelPath);
     if (!novel) {
       const error = 'Failed to fetch novel data';
@@ -259,28 +276,78 @@ export const massImport = async (
       errored: [],
     };
 
-    const urlsByDomain: Record<string, string[]> = urls.reduce(
-      (acc: Record<string, string[]>, url: string) => {
-        try {
-          const domain = new URL(url).hostname;
-          if (!acc[domain]) {
-            acc[domain] = [];
-          }
-          acc[domain].push(url);
-        } catch (e) {
+    const urlsToProcess: string[] = [];
+    const totalUrls = urls.length;
+    let processedCount = 0;
+
+    setMeta(meta => ({
+      ...meta,
+      progressText: 'Prefiltering URLs...',
+    }));
+
+    for (const url of urls) {
+      try {
+        const urlObj = new URL(url);
+        if (!urlObj) throw new Error('Invalid URL');
+
+        const plugin = workingPlugins.find(p => url.startsWith(p.site));
+
+        if (!plugin) {
+          results.errored.push({ name: url, url, error: 'No plugin found' });
+          continue;
+        }
+
+        if (plugin.id === LOCAL_PLUGIN_ID) {
           results.errored.push({
             name: url,
             url,
-            error: 'Invalid URL format',
+            error: 'Cannot import from local plugin',
           });
+          continue;
         }
+
+        let novelPath = url;
+        if (url.startsWith(plugin.site)) {
+          novelPath = extractPathFromUrl(url, plugin.site);
+        }
+        const normalizedPath = normalizePath(novelPath);
+
+        const preCheckNovel = await db.getFirstAsync<{
+          name: string;
+          inLibrary: number;
+        }>(
+          'SELECT name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+          [plugin.id, normalizedPath, '/' + normalizedPath],
+        );
+
+        if (preCheckNovel?.inLibrary) {
+          results.skipped.push({ name: preCheckNovel.name, url });
+          continue;
+        }
+
+        urlsToProcess.push(url);
+      } catch (e: any) {
+        results.errored.push({
+          name: url,
+          url,
+          error: 'Invalid URL or format',
+        });
+      }
+    }
+
+    processedCount = totalUrls - urlsToProcess.length;
+
+    const urlsByDomain: Record<string, string[]> = urlsToProcess.reduce(
+      (acc: Record<string, string[]>, url: string) => {
+        const domain = new URL(url).hostname;
+        if (!acc[domain]) {
+          acc[domain] = [];
+        }
+        acc[domain].push(url);
         return acc;
       },
       {},
     );
-
-    let processedCount = 0;
-    const totalUrls = urls.length;
 
     const domainPromises = Object.values(urlsByDomain).map(
       async (urlGroup: string[]) => {
@@ -331,6 +398,8 @@ export const massImport = async (
     const finalMessage = `Mass import completed. Added: ${results.added.length}, Skipped: ${results.skipped.length}, Errored: ${results.errored.length}`;
     showToast(finalMessage + '. ' + getString('common.copiedToClipboard'));
 
+    setMMKVObject('LAST_MASS_IMPORT_RESULT', results);
+
     setMeta(meta => ({
       ...meta,
       progress: 1,
@@ -338,6 +407,9 @@ export const massImport = async (
       isRunning: false,
       result: results,
     }));
+
+    const { MMKV } = require('@utils/mmkv/mmkv');
+    MMKV.set('LAST_MASS_IMPORT_RESULT', JSON.stringify(results));
   } catch (error: any) {
     showToast(`Mass import failed: ${error.message}`);
     setMeta(meta => ({

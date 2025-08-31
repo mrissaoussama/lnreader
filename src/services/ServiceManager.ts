@@ -64,7 +64,7 @@ export type BackgroundTask =
       data: { includeDownloads: boolean; backupFile?: any };
     }
   | { name: 'MIGRATE_NOVEL'; data: MigrateNovelData }
-  | { name: 'MASS_IMPORT'; data: { urls: string[] } }
+  | { name: 'MASS_IMPORT'; data: { urls: string[]; delay?: number } }
   | DownloadChapterTask;
 export type DownloadChapterTask = {
   name: 'DOWNLOAD_CHAPTER';
@@ -299,10 +299,13 @@ export default class ServiceManager {
         return downloadChapter(task.task.data, this.setMeta.bind(this));
       case 'MASS_IMPORT': {
         const data = task.task.data;
-        const massImportData: { urls: string[] } =
-          data && typeof data === 'object' && Array.isArray(data.urls)
-            ? (data as { urls: string[] })
-            : { urls: [] };
+        const massImportData: { urls: string[]; delay: number } =
+          data &&
+          typeof data === 'object' &&
+          Array.isArray(data.urls) &&
+          typeof data.delay === 'number'
+            ? (data as { urls: string[]; delay: number })
+            : { urls: [], delay: 500 };
         return massImport(massImportData, this.setMeta.bind(this));
       }
       case 'SYNC_FROM_TRACKERS': {
