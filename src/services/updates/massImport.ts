@@ -189,6 +189,8 @@ export const massImport = async (
     return;
   }
 
+  const domainDelay = data.delay || 500;
+
   const urls = data.urls
     .flatMap((input: string) => {
       if (!input || typeof input !== 'string') {
@@ -286,7 +288,8 @@ export const massImport = async (
 
     const domainPromises = Object.values(urlsByDomain).map(
       async (urlGroup: string[]) => {
-        for (const url of urlGroup) {
+        for (let i = 0; i < urlGroup.length; i++) {
+          const url = urlGroup[i];
           setMeta(meta => ({
             ...meta,
             progressText: `Processing: ${url}`,
@@ -296,7 +299,10 @@ export const massImport = async (
           await processUrl(url, workingPlugins, results);
           processedCount++;
 
-          await sleep(200);
+          // Apply delay between same domain fetches, but not after the last URL in the group
+          if (i < urlGroup.length - 1) {
+            await sleep(domainDelay);
+          }
         }
       },
     );
