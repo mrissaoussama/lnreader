@@ -5,7 +5,11 @@ import * as Clipboard from 'expo-clipboard';
 
 import { showToast } from '@utils/showToast';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
-import { ImportResult } from '@services/updates/massImport';
+import {
+  ImportResult,
+  copyErroredWithErrors,
+  copyErroredLinksOnly,
+} from '@services/updates/massImport';
 import { useTheme } from '@hooks/persisted';
 
 interface Props {
@@ -179,6 +183,28 @@ export const MassImportReportModal: React.FC<Props> = ({
               labelStyle={{ color: theme.onSurface }}
             >
               Copy Errored ({result.errored.length})
+            </Button>
+
+            <Button
+              mode="outlined"
+              onPress={() => copyErroredWithErrors(result.errored)}
+              style={styles.button}
+              disabled={result.errored.length === 0}
+              theme={{ colors: { primary: theme.primary } }}
+              labelStyle={{ color: theme.onSurface }}
+            >
+              Copy Errored (with errors)
+            </Button>
+
+            <Button
+              mode="outlined"
+              onPress={() => copyErroredLinksOnly(result.errored)}
+              style={styles.button}
+              disabled={result.errored.length === 0}
+              theme={{ colors: { primary: theme.primary } }}
+              labelStyle={{ color: theme.onSurface }}
+            >
+              Copy Errored (links only)
             </Button>
 
             <Button

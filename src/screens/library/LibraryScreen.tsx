@@ -24,6 +24,7 @@ import {
   useLibrarySettings,
 } from '@hooks/persisted';
 import { useSearch, useBackHandler, useBoolean } from '@hooks';
+import { debounce } from 'lodash';
 import { getString } from '@strings/translations';
 import { FAB, Portal } from 'react-native-paper';
 import {
@@ -96,6 +97,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     {},
   );
   const [libraryChangeKey, setLibraryChangeKey] = useState(0);
+  const [visibleNovelIds, setVisibleNovelIds] = useState<number[]>([]); // Track visible novels for select all
 
   const currentNovels = useMemo(() => {
     if (!categories.length) return [];
@@ -119,9 +121,27 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     }, [refetchLibrary]),
   );
 
-  useEffect(() => {
-    const updateCategoryCounts = async () => {
+  // Throttle category count updates to reduce DB queries during mass import
+  const updateCategoryCounts = useMemo(() => {
+    // Check if mass import is running to reduce DB pressure
+    const isMassImportRunning = () => {
+      try {
+        const task = ServiceManager.manager.getTask('MASS_IMPORT');
+        return task?.meta?.isRunning || false;
+      } catch {
+        return false;
+      }
+    };
+
+    return debounce(async () => {
       if (!categories.length) return;
+
+      // Use longer debounce during mass import to reduce DB contention
+      const isImportRunning = isMassImportRunning();
+      if (isImportRunning) {
+        // Skip category count updates during mass import to reduce DB load
+        return;
+      }
 
       const categoryNovelIds = categories.map(category => category.novelIds);
       const counts = getCategoryNovelCounts(
@@ -137,10 +157,12 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       });
 
       setCategoryCounts(countsMap);
-    };
+    }, 500); // 500ms debounce
+  }, [categories, filter, searchText, downloadedOnlyMode]);
 
+  useEffect(() => {
     updateCategoryCounts();
-  }, [categories, searchText, downloadedOnlyMode, filter]);
+  }, [updateCategoryCounts]);
 
   useEffect(() => {
     const generateSyncReport = (results, type) => {
@@ -468,6 +490,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             navigation={navigation}
             isFocused={isFocused}
             libraryChangeKey={libraryChangeKey}
+            onSelectAllVisible={setVisibleNovelIds} // Pass callback to track visible novels
           />
         </>
       );
@@ -551,8 +574,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             ? [
                 {
                   iconName: 'select-all',
-                  onPress: () =>
-                    setSelectedNovelIds(currentNovels.map(novel => novel.id)),
+                  onPress: () => setSelectedNovelIds(visibleNovelIds), // Use visible novels instead of currentNovels
                 },
               ]
             : [

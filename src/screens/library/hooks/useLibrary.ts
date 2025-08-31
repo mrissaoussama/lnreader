@@ -30,6 +30,7 @@ export const useLibrary = (): UseLibraryReturnType => {
     filter,
     sortOrder = LibrarySortOrder.DateAdded_DESC,
     downloadedOnlyMode = false,
+    libraryLoadLimit = 50,
   } = useLibrarySettings();
 
   const [library, setLibrary] = useState<DBNovelInfo[]>([]);
@@ -55,12 +56,25 @@ export const useLibrary = (): UseLibraryReturnType => {
 
     const [_, novels] = await Promise.all([
       refreshCategories(),
-      getLibraryNovelsFromDb(sortOrder, filter, searchText, downloadedOnlyMode),
+      getLibraryNovelsFromDb(
+        sortOrder,
+        filter,
+        searchText,
+        downloadedOnlyMode,
+        libraryLoadLimit,
+      ),
     ]);
 
     setLibrary(novels);
     setIsLoading(false);
-  }, [downloadedOnlyMode, filter, refreshCategories, searchText, sortOrder]);
+  }, [
+    downloadedOnlyMode,
+    filter,
+    refreshCategories,
+    searchText,
+    sortOrder,
+    libraryLoadLimit,
+  ]);
 
   const novelInLibrary = useCallback(
     (pluginId: string, novelPath: string) => {
@@ -87,11 +101,19 @@ export const useLibrary = (): UseLibraryReturnType => {
         filter,
         searchText,
         downloadedOnlyMode,
+        libraryLoadLimit,
       );
 
       setLibrary(novels);
     },
-    [downloadedOnlyMode, filter, refreshCategories, searchText, sortOrder],
+    [
+      downloadedOnlyMode,
+      filter,
+      refreshCategories,
+      searchText,
+      sortOrder,
+      libraryLoadLimit,
+    ],
   );
 
   useFocusEffect(() => {

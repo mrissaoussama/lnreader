@@ -73,6 +73,18 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
     setDelay('500');
   };
 
+  const cancelMassImport = () => {
+    ServiceManager.manager.cancelTask('MASS_IMPORT');
+    closeModal();
+  };
+
+  const isMassImportRunning = () => {
+    const tasks = ServiceManager.manager.getTaskList();
+    return tasks.some(
+      task => task.task.name === 'MASS_IMPORT' && task.meta.isRunning,
+    );
+  };
+
   return (
     <Portal>
       <Dialog
@@ -115,6 +127,15 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
               View Last Report
             </Button>
           )}
+          {isMassImportRunning() && (
+            <Button
+              onPress={cancelMassImport}
+              theme={{ colors: { primary: theme.primary } }}
+              labelStyle={{ color: theme.onSurface }}
+            >
+              Cancel Import
+            </Button>
+          )}
           <Button
             onPress={handleCancel}
             theme={{ colors: { primary: theme.primary } }}
@@ -126,6 +147,7 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
             onPress={handleImport}
             theme={{ colors: { primary: theme.primary } }}
             labelStyle={{ color: theme.onSurface }}
+            disabled={isMassImportRunning()}
           >
             {getString('common.import')}
           </Button>

@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet } from 'react-native';
 
 import DisplayModeModal from './modals/DisplayModeModal';
 import GridSizeModal from './modals/GridSizeModal';
+import LibraryLoadLimitModal from './modals/LibraryLoadLimitModal';
 
 import {
   useAppSettings,
@@ -38,6 +39,7 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
     showNumberOfNovels = false,
     showUnreadBadges = true,
     sortOrder = LibrarySortOrder.DateAdded_DESC,
+    libraryLoadLimit = 50,
   } = useLibrarySettings();
 
   const sortOrderDisplay: string[] = sortOrder.split(' ');
@@ -86,6 +88,11 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
    * Grid Size Modal
    */
   const gridSizeModalRef = useBoolean();
+
+  /**
+   * Library Load Limit Modal
+   */
+  const libraryLoadLimitModalRef = useBoolean();
 
   /**
    * Novel Badges Modal
@@ -149,6 +156,12 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
           />
           <List.Divider theme={theme} />
           <List.SubHeader theme={theme}>{getString('library')}</List.SubHeader>
+          <List.Item
+            title="Library Load Limit"
+            description={`Load ${libraryLoadLimit} novels at once`}
+            onPress={libraryLoadLimitModalRef.setTrue}
+            theme={theme}
+          />
           <SettingSwitch
             label={getString('generalSettingsScreen.updateLibrary')}
             description={getString('generalSettingsScreen.updateLibraryDesc')}
@@ -268,6 +281,12 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
         novelsPerRow={novelsPerRow}
         gridSizeModalVisible={gridSizeModalRef.value}
         hideGridSizeModal={gridSizeModalRef.setFalse}
+        theme={theme}
+      />
+      <LibraryLoadLimitModal
+        libraryLoadLimit={libraryLoadLimit}
+        libraryLoadLimitModalVisible={libraryLoadLimitModalRef.value}
+        hideLibraryLoadLimitModal={libraryLoadLimitModalRef.setFalse}
         theme={theme}
       />
       <NovelBadgesModal
