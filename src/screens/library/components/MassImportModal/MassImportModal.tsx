@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Button, Dialog, Portal, TextInput } from 'react-native-paper';
 import { useTheme } from '@hooks/persisted';
 import { getString } from '@strings/translations';
@@ -73,18 +73,6 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
     setDelay('500');
   };
 
-  const cancelMassImport = () => {
-    ServiceManager.manager.cancelTask('MASS_IMPORT');
-    closeModal();
-  };
-
-  const isMassImportRunning = () => {
-    const tasks = ServiceManager.manager.getTaskList();
-    return tasks.some(
-      task => task.task.name === 'MASS_IMPORT' && task.meta.isRunning,
-    );
-  };
-
   return (
     <Portal>
       <Dialog
@@ -105,6 +93,9 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
             style={styles.textInput}
             contentStyle={styles.textInputContent}
             theme={{ colors: { ...theme } }}
+            mode="outlined"
+            outlineColor={theme.outline}
+            activeOutlineColor={theme.primary}
           />
           <TextInput
             value={delay}
@@ -117,41 +108,38 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
             theme={{ colors: { ...theme } }}
           />
         </Dialog.Content>
-        <Dialog.Actions>
+        <View style={styles.actions}>
           {hasReportData() && (
+            <View style={styles.buttonRow}>
+              <Button
+                onPress={() => setReportModalVisible(true)}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                style={styles.reportButton}
+              >
+                View Last Report
+              </Button>
+            </View>
+          )}
+          <View style={styles.buttonRow}>
             <Button
-              onPress={() => setReportModalVisible(true)}
+              onPress={handleCancel}
               theme={{ colors: { primary: theme.primary } }}
               labelStyle={{ color: theme.onSurface }}
+              style={styles.button}
             >
-              View Last Report
+              {getString('common.cancel')}
             </Button>
-          )}
-          {isMassImportRunning() && (
             <Button
-              onPress={cancelMassImport}
+              onPress={handleImport}
               theme={{ colors: { primary: theme.primary } }}
               labelStyle={{ color: theme.onSurface }}
+              style={styles.button}
             >
-              Cancel Import
+              {getString('common.import')}
             </Button>
-          )}
-          <Button
-            onPress={handleCancel}
-            theme={{ colors: { primary: theme.primary } }}
-            labelStyle={{ color: theme.onSurface }}
-          >
-            {getString('common.cancel')}
-          </Button>
-          <Button
-            onPress={handleImport}
-            theme={{ colors: { primary: theme.primary } }}
-            labelStyle={{ color: theme.onSurface }}
-            disabled={isMassImportRunning()}
-          >
-            {getString('common.import')}
-          </Button>
-        </Dialog.Actions>
+          </View>
+        </View>
       </Dialog>
       <MassImportReportModal
         visible={reportModalVisible}
@@ -163,15 +151,33 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
 
 const styles = StyleSheet.create({
   textInput: {
-    height: 200,
+    minHeight: 200,
+    marginBottom: 8,
   },
   textInputContent: {
-    height: 200,
+    minHeight: 180,
     textAlignVertical: 'top',
     paddingTop: 12,
+    paddingHorizontal: 16,
   },
   delayInput: {
     marginTop: 16,
+  },
+  actions: {
+    flexDirection: 'column',
+    padding: 16,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  button: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  reportButton: {
+    marginBottom: 8,
   },
 });
 
