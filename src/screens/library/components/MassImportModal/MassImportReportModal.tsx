@@ -137,75 +137,84 @@ export const MassImportReportModal: React.FC<Props> = ({
               Copy Actions
             </Text>
 
-            <Button
-              mode="outlined"
-              onPress={copyAllLinks}
-              style={styles.button}
-              disabled={
-                result.added.length === 0 &&
-                result.skipped.length === 0 &&
-                result.errored.length === 0
-              }
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy All Links
-            </Button>
+            <View style={styles.buttonRow}>
+              <Button
+                mode="outlined"
+                onPress={copyAllLinks}
+                style={styles.button}
+                disabled={
+                  result.added.length === 0 &&
+                  result.skipped.length === 0 &&
+                  result.errored.length === 0
+                }
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="content-copy"
+              >
+                Copy All Links
+              </Button>
+              <Button
+                mode="outlined"
+                onPress={copyAdded}
+                style={styles.button}
+                disabled={result.added.length === 0}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="content-copy"
+              >
+                Copy Added ({result.added.length})
+              </Button>
+            </View>
 
-            <Button
-              mode="outlined"
-              onPress={copyAdded}
-              style={styles.button}
-              disabled={result.added.length === 0}
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy Added ({result.added.length})
-            </Button>
+            <View style={styles.buttonRow}>
+              <Button
+                mode="outlined"
+                onPress={copySkipped}
+                style={styles.button}
+                disabled={result.skipped.length === 0}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="content-copy"
+              >
+                Copy Skipped ({result.skipped.length})
+              </Button>
+              <Button
+                mode="outlined"
+                onPress={copyErrored}
+                style={styles.button}
+                disabled={result.errored.length === 0}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="alert-circle"
+              >
+                Copy Errored ({result.errored.length})
+              </Button>
+            </View>
 
-            <Button
-              mode="outlined"
-              onPress={copySkipped}
-              style={styles.button}
-              disabled={result.skipped.length === 0}
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy Skipped ({result.skipped.length})
-            </Button>
-
-            <Button
-              mode="outlined"
-              onPress={copyErrored}
-              style={styles.button}
-              disabled={result.errored.length === 0}
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy Errored ({result.errored.length})
-            </Button>
-
-            <Button
-              mode="outlined"
-              onPress={() => copyErroredWithErrors(result.errored)}
-              style={styles.button}
-              disabled={result.errored.length === 0}
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy Errored (with errors)
-            </Button>
-
-            <Button
-              mode="outlined"
-              onPress={() => copyErroredLinksOnly(result.errored)}
-              style={styles.button}
-              disabled={result.errored.length === 0}
-              theme={{ colors: { primary: theme.primary } }}
-              labelStyle={{ color: theme.onSurface }}
-            >
-              Copy Errored (links only)
-            </Button>
+            <View style={styles.buttonRow}>
+              <Button
+                mode="outlined"
+                onPress={() => copyErroredWithErrors(result.errored)}
+                style={styles.button}
+                disabled={result.errored.length === 0}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="alert-circle"
+              >
+                Copy Errored (with errors)
+              </Button>
+              <Button
+                mode="outlined"
+                onPress={() => copyErroredLinksOnly(result.errored)}
+                style={styles.button}
+                disabled={result.errored.length === 0}
+                theme={{ colors: { primary: theme.primary } }}
+                labelStyle={{ color: theme.onSurface }}
+                icon="link"
+              >
+                Copy Errored (links only)
+              </Button>
+            </View>
 
             <Button
               mode="outlined"
@@ -213,6 +222,7 @@ export const MassImportReportModal: React.FC<Props> = ({
               style={styles.lastButton}
               theme={{ colors: { primary: theme.primary } }}
               labelStyle={{ color: theme.onSurface }}
+              icon="file-document"
             >
               Copy Full Report
             </Button>
@@ -327,15 +337,16 @@ export const MassImportReportModal: React.FC<Props> = ({
             )}
           </ScrollView>
         </Dialog.Content>
-        <Dialog.Actions>
+        <View style={styles.actions}>
           <Button
             onPress={onDismiss}
             theme={{ colors: { primary: theme.primary } }}
             labelStyle={{ color: theme.onSurface }}
+            icon="close"
           >
             Close
           </Button>
-        </Dialog.Actions>
+        </View>
       </Dialog>
     </Portal>
   );
@@ -352,10 +363,19 @@ const createStyles = () =>
       marginBottom: 8,
     },
     button: {
-      marginBottom: 8,
+      flex: 1,
+      marginHorizontal: 4,
     },
     lastButton: {
       marginBottom: 16,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
+    actions: {
+      padding: 16,
     },
     divider: {
       marginVertical: 16,

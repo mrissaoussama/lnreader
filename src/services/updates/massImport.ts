@@ -371,6 +371,7 @@ export const massImport = async (
     }));
 
     for (const url of urls) {
+      await sleep(0); // Yield to prevent ANR
       try {
         const urlObj = new URL(url);
         if (!urlObj) throw new Error('Invalid URL');
@@ -439,6 +440,7 @@ export const massImport = async (
     const domainPromises = Object.values(urlsByDomain).map(
       async (urlGroup: string[]) => {
         for (let i = 0; i < urlGroup.length; i++) {
+          await sleep(0); // Yield to prevent ANR
           // Check for cancellation before each URL
           if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
             setMeta(meta => ({
