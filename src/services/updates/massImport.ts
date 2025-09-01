@@ -14,10 +14,10 @@ import { getString } from '@strings/translations';
 import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
 import { setMMKVObject } from '@utils/mmkv/mmkv';
 
-// Simple retry for database operations
+// Simple retry for database operations with exponential backoff
 const simpleRetry = async <T>(
   operation: () => Promise<T>,
-  maxRetries: number = 3,
+  maxRetries: number = 5, // Increased from 3
 ): Promise<T> => {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -27,10 +27,15 @@ const simpleRetry = async <T>(
       const isDbBusyError =
         error.message?.includes('SQLITE_BUSY') ||
         error.message?.includes('database is locked') ||
-        error.code === 'SQLITE_BUSY';
+        error.message?.includes('SQLITE_LOCKED') ||
+        error.code === 'SQLITE_BUSY' ||
+        error.code === 'SQLITE_LOCKED';
 
       if (isDbBusyError && !isLastAttempt) {
-        await sleep(50 + Math.random() * 50); // Random 50-100ms delay
+        // Exponential backoff with jitter
+        const baseDelay = Math.min(100 * Math.pow(2, attempt), 1000);
+        const jitter = Math.random() * baseDelay * 0.5;
+        await sleep(baseDelay + jitter);
         continue;
       }
 
@@ -192,12 +197,30 @@ const processUrl = async (
         if (existingNovel.inLibrary) {
           results.skipped.push({ name: novel.name, url });
         } else {
-          // Stage the existing novel (don't add to library yet)
-          results.staged.push({
-            name: novel.name,
-            url,
-            novelId: existingNovel.id,
-          });
+          // Novel exists but not in library - add it to library
+          try {
+            await simpleRetry(async () => {
+              await db.withTransactionAsync(async () => {
+                await db.runAsync(
+                  'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
+                  [existingNovel.id],
+                );
+
+                await db.runAsync(
+                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                  [existingNovel.id],
+                );
+              });
+            });
+
+            results.added.push({ name: novel.name, url });
+          } catch (addError: any) {
+            results.errored.push({
+              name: novel.name,
+              url,
+              error: `Failed to add existing novel to library: ${addError.message}`,
+            });
+          }
         }
         return;
       }
@@ -400,16 +423,44 @@ export const massImport = async (
 
         const preCheckNovel = await simpleRetry(async () => {
           return await db.getFirstAsync<{
+            id: number;
             name: string;
             inLibrary: number;
           }>(
-            'SELECT name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
+            'SELECT id, name, inLibrary FROM Novel WHERE pluginId = ? AND (path = ? OR path = ?)',
             [plugin.id, normalizedPath, '/' + normalizedPath],
           );
         });
 
-        if (preCheckNovel?.inLibrary) {
-          results.skipped.push({ name: preCheckNovel.name, url });
+        if (preCheckNovel) {
+          if (preCheckNovel.inLibrary) {
+            results.skipped.push({ name: preCheckNovel.name, url });
+          } else {
+            // Novel exists but not in library - add it to library
+            try {
+              await simpleRetry(async () => {
+                await db.withTransactionAsync(async () => {
+                  await db.runAsync(
+                    'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
+                    [preCheckNovel.id],
+                  );
+
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                    [preCheckNovel.id],
+                  );
+                });
+              });
+
+              results.added.push({ name: preCheckNovel.name, url });
+            } catch (addError: any) {
+              results.errored.push({
+                name: preCheckNovel.name,
+                url,
+                error: `Failed to add existing novel to library: ${addError.message}`,
+              });
+            }
+          }
           continue;
         }
 
