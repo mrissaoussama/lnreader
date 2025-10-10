@@ -492,6 +492,12 @@ export const massImport = async (
       async (urlGroup: string[]) => {
         for (let i = 0; i < urlGroup.length; i++) {
           await sleep(0); // Yield to prevent ANR
+
+          // Additional yield every 5 URLs to be more aggressive about preventing ANR
+          if (i > 0 && i % 5 === 0) {
+            await sleep(50);
+          }
+
           // Check for cancellation before each URL
           if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
             setMeta(meta => ({
@@ -505,7 +511,9 @@ export const massImport = async (
           const url = urlGroup[i];
           setMeta(meta => ({
             ...meta,
-            progressText: `Processing: ${url}`,
+            progressText: `Processing: ${url} (${
+              processedCount + 1
+            }/${totalUrls})`,
             progress: processedCount / totalUrls,
           }));
 
@@ -550,6 +558,9 @@ export const massImport = async (
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
 
+        // Yield control every batch to prevent ANR
+        await sleep(10);
+
         if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
           break; // Stop if cancelled during library addition
         }
@@ -591,6 +602,7 @@ export const massImport = async (
         } catch (error: any) {
           // If batch fails, try individual items to see which ones work
           for (const stagedNovel of batch) {
+            await sleep(5); // Small yield for individual operations
             if (taskId && ServiceManager.manager.isTaskCancelled(taskId)) {
               break;
             }
@@ -647,46 +659,24 @@ export const massImport = async (
       return summary;
     };
 
-    // Store additional copy functions in the results for MassImportReportModal
-    const enhancedResults = {
-      ...results,
-      copyErroredWithErrors: () => {
-        const erroredText = results.errored
-          .map(item => `${item.name}: ${item.url} (Error: ${item.error})`)
-          .join('\n');
-        Clipboard.setStringAsync(erroredText);
-        showToast('Errored novels with errors copied to clipboard');
-      },
-      copyErroredLinksOnly: () => {
-        const linksText = results.errored.map(item => item.url).join('\n');
-        Clipboard.setStringAsync(linksText);
-        showToast('Errored URLs copied to clipboard');
-      },
-      copyAllSummary: () => {
-        const summaryText = getSummaryText(results);
-        Clipboard.setStringAsync(summaryText);
-        showToast('Full import summary copied to clipboard');
-      },
-    };
-
     const summaryText = getSummaryText(results);
     Clipboard.setStringAsync(summaryText);
 
     const finalMessage = `Mass import completed. Added: ${results.added.length}, Skipped: ${results.skipped.length}, Errored: ${results.errored.length}`;
     showToast(finalMessage + '. ' + getString('common.copiedToClipboard'));
 
-    setMMKVObject('LAST_MASS_IMPORT_RESULT', enhancedResults);
+    // Store results safely
+    try {
+      setMMKVObject('LAST_MASS_IMPORT_RESULT', results);
+    } catch (storageError: any) {}
 
     setMeta(meta => ({
       ...meta,
       progress: 1,
       progressText: finalMessage,
       isRunning: false,
-      result: enhancedResults,
+      result: results,
     }));
-
-    const { MMKV } = require('@utils/mmkv/mmkv');
-    MMKV.set('LAST_MASS_IMPORT_RESULT', JSON.stringify(enhancedResults));
   } catch (error: any) {
     showToast(`Mass import failed: ${error.message}`);
     setMeta(meta => ({
