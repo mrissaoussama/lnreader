@@ -3,8 +3,6 @@ import { NovelItem } from '@plugins/types';
 
 import { getPlugin } from '@plugins/pluginManager';
 import { FilterToValues, Filters } from '@plugins/types/filterTypes';
-import { useBrowseSettings } from '@hooks/persisted/useSettings';
-import { useLibraryContext } from '@components/Context/LibraryContext';
 
 export const useBrowseSource = (
   pluginId: string,
@@ -26,9 +24,6 @@ export const useBrowseSource = (
 
   const isScreenMounted = useRef(true);
 
-  const { hideInLibraryItems } = useBrowseSettings();
-  const { novelInLibrary } = useLibraryContext();
-
   const fetchNovels = useCallback(
     async (page: number, filters?: FilterToValues<Filters>) => {
       // Don't fetch if filter sheet is open to avoid unnecessary network requests
@@ -41,16 +36,20 @@ export const useBrowseSource = (
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
           }
-          let res = await plugin.popularNovels(page, {
+          const res = await plugin.popularNovels(page, {
             showLatestNovels,
             filters,
           });
-          if (hideInLibraryItems) {
-            res = res.filter(
-              pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
-            );
-          }
-          setNovels(prevState => (page === 1 ? res : [...prevState, ...res]));
+          // Don't filter here - let the UI filter handle it to avoid issues
+          setNovels(prevState => {
+            if (page === 1) {
+              return res;
+            }
+            // Prevent duplicates during pagination
+            const existingPaths = new Set(prevState.map(n => n.path));
+            const newNovels = res.filter(n => !existingPaths.has(n.path));
+            return [...prevState, ...newNovels];
+          });
           if (!res.length) {
             setHasNextPage(false);
           }
@@ -61,13 +60,7 @@ export const useBrowseSource = (
         }
       }
     },
-    [
-      pluginId,
-      showLatestNovels,
-      hideInLibraryItems,
-      novelInLibrary,
-      isFilterSheetOpen,
-    ],
+    [pluginId, showLatestNovels, isFilterSheetOpen],
   );
 
   const fetchNextPage = () => {
@@ -92,13 +85,7 @@ export const useBrowseSource = (
     if (!isFilterSheetOpen) {
       fetchNovels(currentPage, selectedFilters);
     }
-  }, [
-    fetchNovels,
-    currentPage,
-    selectedFilters,
-    hideInLibraryItems,
-    isFilterSheetOpen,
-  ]);
+  }, [fetchNovels, currentPage, selectedFilters, isFilterSheetOpen]);
 
   const refetchNovels = () => {
     setError('');
@@ -144,9 +131,6 @@ export const useSearchSource = (
   const [currentPage, setCurrentPage] = useState(1);
   const [searchText, setSearchText] = useState('');
 
-  const { hideInLibraryItems } = useBrowseSettings();
-  const { novelInLibrary } = useLibraryContext();
-
   const searchSource = (searchTerm: string) => {
     // Don't start search if filter sheet is open
     if (isFilterSheetOpen) {
@@ -173,16 +157,14 @@ export const useSearchSource = (
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
           }
-          let res = await plugin.searchNovels(localSearchText, page);
-          if (hideInLibraryItems) {
-            res = res.filter(
-              pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
-            );
-          }
-          setSearchResults(prevState =>
-            page === 1 ? res : [...prevState, ...res],
+          const result = await plugin.searchNovels(localSearchText, page);
+          const filteredRes = result.filter(
+            pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
           );
-          if (!res.length) {
+          setSearchResults(prevState =>
+            page === 1 ? filteredRes : [...prevState, ...filteredRes],
+          );
+          if (!filteredRes.length) {
             setHasNextSearchPage(false);
           }
         } catch (err: unknown) {
@@ -193,7 +175,7 @@ export const useSearchSource = (
         }
       }
     },
-    [pluginId, hideInLibraryItems, novelInLibrary, isFilterSheetOpen],
+    [pluginId, isFilterSheetOpen],
   );
 
   const searchNextPage = () => {
@@ -209,13 +191,7 @@ export const useSearchSource = (
     if (searchText && !isFilterSheetOpen) {
       fetchNovels(searchText, currentPage);
     }
-  }, [
-    currentPage,
-    fetchNovels,
-    searchText,
-    hideInLibraryItems,
-    isFilterSheetOpen,
-  ]);
+  }, [currentPage, fetchNovels, searchText, isFilterSheetOpen]);
 
   const clearSearchResults = useCallback(() => {
     setSearchText('');

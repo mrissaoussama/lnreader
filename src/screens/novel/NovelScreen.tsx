@@ -21,6 +21,7 @@ import { Actionbar } from '../../components/Actionbar/Actionbar';
 import EditInfoModal from './components/EditInfoModal';
 import { pickCustomNovelCover } from '../../database/queries/NovelQueries';
 import DownloadCustomChapterModal from './components/DownloadCustomChapterModal';
+import DeleteRangeModal from './components/DeleteRangeModal';
 import { useBoolean } from '@hooks';
 import NovelScreenLoading from './components/LoadingAnimation/NovelScreenLoading';
 import { NovelScreenProps } from '@navigators/types';
@@ -30,7 +31,10 @@ import NovelDrawer from './components/NovelDrawer';
 import { isNumber, noop } from 'lodash-es';
 import NovelAppbar from './components/NovelAppbar';
 import { resolveUrl } from '@services/plugin/fetch';
-import { updateChapterProgressByIds } from '@database/queries/ChapterQueries';
+import {
+  updateChapterProgressByIds,
+  getNovelChapters,
+} from '@database/queries/ChapterQueries';
 import { MaterialDesignIconName } from '@type/icon';
 import NovelScreenList from './components/NovelScreenList';
 import { ThemeColors } from '@theme/types';
@@ -42,6 +46,7 @@ import AlternativeTitlesModal from './components/AlternativeTitlesModal';
 import LibraryMatchesModal from './components/LibraryMatchesModal';
 import { hasNote } from '@database/queries/NotesQueries';
 import { findLibraryMatches, LibraryMatch } from '@utils/libraryMatching';
+import { showToast } from '@utils/showToast';
 
 const Novel = ({ route, navigation }: NovelScreenProps) => {
   const {
@@ -74,6 +79,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   const [libraryMatchesModal, setLibraryMatchesModal] = useState(false);
   const [libraryMatches, setLibraryMatches] = useState<LibraryMatch[]>([]);
   const [novelHasNote, setNovelHasNote] = useState(false);
+  const [deleteRangeModal, setDeleteRangeModal] = useState(false);
 
   const chapterListRef = useRef<FlashList<ChapterInfo> | null>(null);
 
@@ -123,23 +129,116 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
   // useFocusEffect(refreshChapters);
 
   const downloadChs = useCallback(
-    (amount: number | 'all' | 'unread') => {
+    async (amount: number | 'all' | 'unread') => {
       if (!novel) {
         return;
       }
-      let filtered = chapters.filter(chapter => !chapter.isDownloaded);
+      // Fetch all chapters from DB for 'all' and 'unread' to ensure we get everything
+      let baseChapters: ChapterInfo[] = chapters;
+      if (amount === 'all' || amount === 'unread') {
+        baseChapters = await getNovelChapters(novel.id);
+      }
+
+      let filtered = baseChapters.filter(chapter => !chapter.isDownloaded);
       if (amount === 'unread') {
         filtered = filtered.filter(chapter => chapter.unread);
       }
       if (isNumber(amount)) {
         filtered = filtered.slice(0, amount);
       }
-      if (filtered) {
+      if (filtered.length) {
         downloadChapters(novel, filtered);
       }
     },
     [chapters, downloadChapters, novel],
   );
+  const deleteChapterRange = useCallback(
+    async (start: number, end: number) => {
+      if (!novel) return;
+      const allChapters = await getNovelChapters(novel.id);
+      const toDelete = allChapters.filter(
+        ch =>
+          ch.chapterNumber &&
+          ch.chapterNumber >= start &&
+          ch.chapterNumber <= end &&
+          ch.isDownloaded,
+      );
+      if (toDelete.length) {
+        deleteChapters(toDelete);
+      }
+      setDeleteRangeModal(false);
+    },
+    [novel, deleteChapters],
+  );
+
+  const clearAndRefreshChapters = useCallback(async () => {
+    if (!novel) return;
+
+    // Show confirmation dialog
+    const { Alert } = await import('react-native');
+    Alert.alert(
+      'Clear and Refresh Chapters',
+      'This will delete all chapter entries, read status, and downloads for this novel. Are you sure?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Delete all chapter entries and their downloads for this novel
+              const { db } = await import('@database/db');
+              await db.withTransactionAsync(async () => {
+                // Delete all downloaded chapter files
+                const allChapters = await getNovelChapters(novel.id);
+                const downloadedChapters = allChapters.filter(
+                  ch => ch.isDownloaded,
+                );
+                if (downloadedChapters.length > 0) {
+                  await deleteChapters(downloadedChapters);
+                }
+
+                // Delete all chapter entries from database
+                await db.runAsync('DELETE FROM Chapter WHERE novelId = ?', [
+                  novel.id,
+                ]);
+              });
+
+              // Call the same function as pull-to-refresh (onRefreshPage)
+              const page = pages[pageIndex];
+              if (page) {
+                const { fetchPage } = await import('@services/plugin/fetch');
+                const { insertChapters } = await import(
+                  '@database/queries/ChapterQueries'
+                );
+
+                const sourcePage = await fetchPage(
+                  novel.pluginId,
+                  novel.path,
+                  page,
+                );
+                const sourceChapters = sourcePage.chapters.map(ch => ({
+                  ...ch,
+                  page,
+                }));
+                await insertChapters(novel.id, sourceChapters);
+              }
+
+              // Refresh the chapter list
+              await refreshChapters();
+              showToast('Chapters cleared and refreshed successfully');
+            } catch (error: any) {
+              showToast(`Failed to clear chapters: ${error.message}`);
+            }
+          },
+        },
+      ],
+    );
+  }, [novel, deleteChapters, refreshChapters, pages, pageIndex]);
+
   const deleteChs = useCallback(() => {
     deleteChapters(chapters.filter(c => c.isDownloaded));
   }, [chapters, deleteChapters]);
@@ -324,6 +423,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 isLocal={novel?.isLocal ?? route.params?.isLocal}
                 goBack={navigation.goBack}
                 headerOpacity={headerOpacity}
+                openDeleteRangeModal={() => setDeleteRangeModal(true)}
+                clearAndRefreshChapters={clearAndRefreshChapters}
               />
             ) : (
               <Animated.View
@@ -446,6 +547,12 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                   chapters={chapters}
                   theme={theme}
                   downloadChapters={downloadChapters}
+                />
+                <DeleteRangeModal
+                  visible={deleteRangeModal}
+                  onDismiss={() => setDeleteRangeModal(false)}
+                  onConfirm={deleteChapterRange}
+                  theme={theme}
                 />
               </>
             )}

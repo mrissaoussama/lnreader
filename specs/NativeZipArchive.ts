@@ -6,12 +6,12 @@ export interface Spec extends TurboModule {
   remoteUnzip: (
     distDirPath: string,
     url: string,
-    headers: { [key: string]: string },
+    headers: Object,
   ) => Promise<void>;
   remoteZip: (
     sourceDirPath: string,
     url: string,
-    headers: { [key: string]: string },
+    headers: Object,
   ) => Promise<string>; // return response as text
 }
 

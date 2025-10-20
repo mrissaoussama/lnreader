@@ -93,11 +93,16 @@ export const deleteChapter = async (
   novelId: number,
   chapterId: number,
 ) => {
-  await deleteDownloadedFiles(pluginId, novelId, chapterId);
-  await db.runAsync(
-    'UPDATE Chapter SET isDownloaded = 0 WHERE id = ?',
-    chapterId,
-  );
+  try {
+    await deleteDownloadedFiles(pluginId, novelId, chapterId);
+    await db.runAsync(
+      'UPDATE Chapter SET isDownloaded = 0 WHERE id = ?',
+      chapterId,
+    );
+  } catch (error) {
+    // Re-throw the error to be handled by the caller
+    throw error;
+  }
 };
 
 export const deleteChapters = async (
@@ -110,23 +115,42 @@ export const deleteChapters = async (
   }
   const chapterIdsString = chapters?.map(chapter => chapter.id).toString();
 
-  await Promise.all(
-    chapters?.map(chapter =>
-      deleteDownloadedFiles(pluginId, novelId, chapter.id),
-    ),
-  );
-  await db.execAsync(
-    `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
-  );
+  await db.withTransactionAsync(async () => {
+    await Promise.all(
+      chapters.map(chapter =>
+        deleteDownloadedFiles(pluginId, novelId, chapter.id),
+      ),
+    );
+    await db.execAsync(
+      `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+    );
+  });
 };
 
 export const deleteDownloads = async (chapters: DownloadedChapter[]) => {
-  await Promise.all(
-    chapters?.map(chapter => {
-      deleteDownloadedFiles(chapter.pluginId, chapter.novelId, chapter.id);
-    }),
+  if (!chapters?.length) {
+    return;
+  }
+
+  const chapterIdsString = chapters.map(chapter => chapter.id).join(',');
+
+  await db.withTransactionAsync(async () => {
+    await Promise.all(
+      chapters.map(chapter =>
+        deleteDownloadedFiles(chapter.pluginId, chapter.novelId, chapter.id),
+      ),
+    );
+
+    await db.execAsync(
+      `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+    );
+  });
+
+  showToast(
+    `${getString('common.delete')} ${chapters.length} ${getString(
+      'downloadScreen.downloadsLower',
+    )}`,
   );
-  await db.execAsync('UPDATE Chapter SET isDownloaded = 0');
 };
 
 export const deleteReadChaptersFromDb = async () => {

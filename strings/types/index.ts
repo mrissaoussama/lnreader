@@ -93,6 +93,12 @@ export interface StringMap {
   'backupScreen.selfHostDesc': 'string';
   'backupScreen.uploadingData': 'string';
   'backupScreen.uploadingDownloadedFiles': 'string';
+  'backupScreen.includePlugins': 'string';
+  'backupScreen.includePluginsDesc': 'string';
+  'backupScreen.includeCustomCSS': 'string';
+  'backupScreen.includeCustomCSSDesc': 'string';
+  'backupScreen.includeCustomJS': 'string';
+  'backupScreen.includeCustomJSDesc': 'string';
   'browse': 'string';
   'browseScreen.addedToLibrary': 'string';
   'browseScreen.available': 'string';

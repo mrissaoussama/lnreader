@@ -287,13 +287,20 @@ export const useLibrarySettings = () => {
   const [librarySettings, setSettings] =
     useMMKVObject<LibrarySettings>(LIBRARY_SETTINGS);
 
-  const setLibrarySettings = (value: Partial<LibrarySettings>) =>
-    setSettings({ ...librarySettings, ...value });
+  const setLibrarySettings = useCallback(
+    (value: Partial<LibrarySettings>) =>
+      setSettings(currentSettings => ({ ...currentSettings, ...value })),
+    [setSettings],
+  );
 
-  return {
-    ...{ ...defaultLibrarySettings, ...librarySettings },
-    setLibrarySettings,
-  };
+  return useMemo(
+    () => ({
+      ...defaultLibrarySettings,
+      ...librarySettings,
+      setLibrarySettings,
+    }),
+    [librarySettings, setLibrarySettings],
+  );
 };
 
 export const useChapterGeneralSettings = () => {

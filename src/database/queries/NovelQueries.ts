@@ -29,62 +29,65 @@ export const insertNovelAndChapters = async (
 ): Promise<number | undefined> => {
   const { normalizePath } = require('@utils/urlUtils');
   const normalizedPath = normalizePath(sourceNovel.path || '');
-  const insertNovelQuery =
-    'INSERT INTO Novel (path, pluginId, name, cover, summary, author, artist, status, genres, totalPages) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-  const novelId: number | undefined = db.runSync(insertNovelQuery, [
-    normalizedPath,
-    pluginId,
-    sourceNovel.name,
-    sourceNovel.cover || null,
-    sourceNovel.summary || null,
-    sourceNovel.author || null,
-    sourceNovel.artist || null,
-    sourceNovel.status || null,
-    sourceNovel.genres || null,
-    sourceNovel.totalPages || 0,
-  ]).lastInsertRowId;
+  let novelId: number | undefined;
 
-  if (novelId) {
-    // Insert alternative titles if they exist
-    const alternativeTitles = sourceNovel.alternativeTitles || [];
-    const cleanTitles = [
-      ...new Set(
-        alternativeTitles
-          .map(title => title.trim())
-          .filter(title => title.length > 0),
-      ),
-    ];
+  await db.withTransactionAsync(async () => {
+    const insertNovelQuery =
+      'INSERT INTO Novel (path, pluginId, name, cover, summary, author, artist, status, genres, totalPages) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    const result = await db.runAsync(insertNovelQuery, [
+      normalizedPath,
+      pluginId,
+      sourceNovel.name,
+      sourceNovel.cover || null,
+      sourceNovel.summary || null,
+      sourceNovel.author || null,
+      sourceNovel.artist || null,
+      sourceNovel.status || null,
+      sourceNovel.genres || null,
+      sourceNovel.totalPages || 0,
+    ]);
+    novelId = result.lastInsertRowId;
 
-    for (const title of cleanTitles) {
-      try {
-        db.runSync(
-          'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
-          novelId,
-          title,
+    if (novelId) {
+      // Insert alternative titles if they exist
+      const alternativeTitles = sourceNovel.alternativeTitles || [];
+      const cleanTitles = [
+        ...new Set(
+          alternativeTitles
+            .map(title => title.trim())
+            .filter(title => title.length > 0),
+        ),
+      ];
+
+      for (const title of cleanTitles) {
+        try {
+          await db.runAsync(
+            'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+            novelId,
+            title,
+          );
+        } catch (e) {}
+      }
+      await updateNovelHasMatch(novelId);
+      if (sourceNovel.cover) {
+        const novelDir = NOVEL_STORAGE + '/' + pluginId + '/' + novelId;
+        NativeFile.mkdir(novelDir);
+        const novelCoverPath = novelDir + '/cover.png';
+        const novelCoverUri = 'file://' + novelCoverPath;
+        await downloadFile(
+          sourceNovel.cover,
+          novelCoverPath,
+          getPlugin(pluginId)?.imageRequestInit,
         );
-      } catch (e) {}
+        await db.runAsync(
+          'UPDATE Novel SET cover = ? WHERE id = ?',
+          novelCoverUri,
+          novelId,
+        );
+      }
+      await insertChapters(novelId, sourceNovel.chapters);
     }
-    await updateNovelHasMatch(novelId);
-    if (sourceNovel.cover) {
-      const novelDir = NOVEL_STORAGE + '/' + pluginId + '/' + novelId;
-      NativeFile.mkdir(novelDir);
-      const novelCoverPath = novelDir + '/cover.png';
-      const novelCoverUri = 'file://' + novelCoverPath;
-      await downloadFile(
-        sourceNovel.cover,
-        novelCoverPath,
-        getPlugin(pluginId)?.imageRequestInit,
-      ).then(() => {
-        runSync([
-          [
-            'UPDATE Novel SET cover = ? WHERE id = ?',
-            [novelCoverUri, novelId!],
-          ],
-        ]);
-      });
-    }
-    await insertChapters(novelId, sourceNovel.chapters);
-  }
+  });
   return novelId;
 };
 
@@ -257,8 +260,8 @@ export const restoreLibrary = async (novel: NovelInfo) => {
 };
 
 export const updateNovelInfo = async (info: NovelInfo) => {
-  await runAsync([
-    [
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
       'UPDATE Novel SET name = ?, cover = ?, path = ?, summary = ?, author = ?, artist = ?, genres = ?, status = ?, isLocal = ? WHERE id = ?',
       [
         info.name,
@@ -272,9 +275,9 @@ export const updateNovelInfo = async (info: NovelInfo) => {
         Number(info.isLocal),
         info.id,
       ],
-    ],
-  ]);
-  await updateNovelHasMatch(info.id);
+    );
+    await updateNovelHasMatch(info.id);
+  });
 };
 
 export const pickCustomNovelCover = async (novel: NovelInfo) => {
@@ -285,11 +288,13 @@ export const pickCustomNovelCover = async (novel: NovelInfo) => {
     if (!NativeFile.exists(novelDir)) {
       NativeFile.mkdir(novelDir);
     }
-    NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
+    await NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
     novelCoverUri += '?' + Date.now();
-    runAsync([
-      ['UPDATE Novel SET cover = ? WHERE id = ?', [novelCoverUri, novel.id]],
-    ]);
+    await db.runAsync(
+      'UPDATE Novel SET cover = ? WHERE id = ?',
+      novelCoverUri,
+      novel.id,
+    );
     return novelCoverUri;
   }
 };
@@ -331,9 +336,9 @@ export const updateNovelCategories = async (
     novelIds.forEach(novelId => {
       // hacky: insert local novel category -> failed -> ignored
       queries.push([
-        `INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) 
+        `INSERT OR IGNORE INTO NovelCategory (novelId, categoryId)
          VALUES (
-          ${novelId}, 
+          ${novelId},
           IFNULL((SELECT categoryId FROM NovelCategory WHERE novelId = ${novelId}), (SELECT id FROM Category WHERE sort = 1))
         )`,
       ]);
@@ -499,8 +504,8 @@ export const clearAlternativeTitles = async (
 
 export const getTrackedNovelsInLibrary = async (): Promise<NovelInfo[]> => {
   return getAllAsync<NovelInfo>([
-    `SELECT DISTINCT n.* FROM Novel n 
-     INNER JOIN tracks t ON n.id = t.novelId 
+    `SELECT DISTINCT n.* FROM Novel n
+     INNER JOIN tracks t ON n.id = t.novelId
      WHERE n.inLibrary = 1`,
   ]);
 };

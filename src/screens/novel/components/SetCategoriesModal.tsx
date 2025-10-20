@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Divider, Portal } from 'react-native-paper';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
@@ -9,7 +9,6 @@ import { useTheme } from '@hooks/persisted';
 
 import { getString } from '@strings/translations';
 import { getCategoriesWithCount } from '@database/queries/CategoryQueries';
-import { updateNovelCategories } from '@database/queries/NovelQueries';
 import { CCategory, Category } from '@database/types';
 import { Checkbox } from '@components/Checkbox/Checkbox';
 import { xor } from 'lodash-es';
@@ -34,18 +33,19 @@ const SetCategoryModal: React.FC<SetCategoryModalProps> = ({
   const { navigate } = useNavigation<NavigationProp<RootStackParamList>>();
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [categories = [], setCategories] = useState<CCategory[]>();
-
-  const getCategories = useCallback(async () => {
-    const res = getCategoriesWithCount(novelIds);
-    setCategories(res);
-    setSelectedCategories(res.filter(c => c.novelsCount));
-  }, [novelIds]);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
-    if (visible) {
-      getCategories();
+    if (visible && !loadedRef.current && novelIds.length > 0) {
+      const res = getCategoriesWithCount(novelIds);
+      setCategories(res);
+      setSelectedCategories(res.filter(c => c.novelsCount));
+      loadedRef.current = true;
+    } else if (!visible) {
+      // Reset when modal closes
+      loadedRef.current = false;
     }
-  }, [getCategories, visible]);
+  }, [visible, novelIds]);
 
   return (
     <Portal>
@@ -110,12 +110,54 @@ const SetCategoryModal: React.FC<SetCategoryModalProps> = ({
           <Button
             title={getString('common.ok')}
             onPress={async () => {
-              await updateNovelCategories(
-                novelIds,
-                selectedCategories.map(category => category.id),
-              );
-              closeModal();
-              onSuccess?.();
+              try {
+                // First ensure novels are in library, then update categories
+                const { db } = await import('@database/db');
+
+                // Process in a single transaction for atomicity
+                await db.withTransactionAsync(async () => {
+                  for (const novelId of novelIds) {
+                    // Update novel to be in library
+                    await db.runAsync(
+                      'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
+                      [novelId],
+                    );
+
+                    // Remove all existing categories for this novel
+                    await db.runAsync(
+                      'DELETE FROM NovelCategory WHERE novelId = ?',
+                      [novelId],
+                    );
+
+                    // Add selected categories
+                    for (const category of selectedCategories) {
+                      await db.runAsync(
+                        'INSERT INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                        [novelId, category.id],
+                      );
+                    }
+
+                    // If no categories selected, add to default category (sort = 1)
+                    if (selectedCategories.length === 0) {
+                      const defaultCategory = await db.getFirstAsync<{
+                        id: number;
+                      }>('SELECT id FROM Category WHERE sort = 1');
+                      if (defaultCategory) {
+                        await db.runAsync(
+                          'INSERT INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                          [novelId, defaultCategory.id],
+                        );
+                      }
+                    }
+                  }
+                });
+
+                closeModal();
+                await onSuccess?.();
+              } catch (error: any) {
+                const { showToast } = await import('@utils/showToast');
+                showToast(`Failed to add to library: ${error.message}`);
+              }
             }}
           />
         </View>

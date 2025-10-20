@@ -19,6 +19,7 @@ interface ReaderAppbarProps {
   goBack: () => void;
   bookmarked: boolean;
   setBookmarked: React.Dispatch<React.SetStateAction<boolean>>;
+  onReload?: () => void;
 }
 
 const fastOutSlowIn = Easing.bezier(0.4, 0.0, 0.2, 1.0);
@@ -28,6 +29,7 @@ const ReaderAppbar = ({
   theme,
   bookmarked,
   setBookmarked,
+  onReload,
 }: ReaderAppbarProps) => {
   const { chapter, novel } = useChapterContext();
   const { statusBarHeight } = useNovelContext();
@@ -115,6 +117,16 @@ const ReaderAppbar = ({
           theme={theme}
           style={styles.bookmark}
         />
+        {onReload && (
+          <IconButtonV2
+            name="reload"
+            size={24}
+            onPress={onReload}
+            color={theme.onSurface}
+            theme={theme}
+            style={styles.bookmark}
+          />
+        )}
       </View>
     </Animated.View>
   );

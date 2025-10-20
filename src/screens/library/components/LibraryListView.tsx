@@ -14,8 +14,20 @@ import { useTheme, useLibrarySettings } from '@hooks/persisted';
 import { LibraryScreenProps } from '@navigators/types';
 import ServiceManager from '@services/ServiceManager';
 import { useLibraryMatching } from '@hooks/useLibraryMatching';
+import { MMKVStorage } from '@utils/mmkv/mmkv';
+import { UPDATE_ON_PULL_REFRESH_ENABLED } from '@screens/settings/SettingsLibraryScreen/SettingsLibraryScreen';
 
 const PAGE_SIZE = 50;
+
+// Store novels and scroll positions per category (including search state)
+const categoryStates = new Map<
+  string,
+  { novels: NovelInfo[]; scrollOffset: number; hasMoreData: boolean }
+>();
+
+const getCategoryKey = (categoryId: number, searchText: string) => {
+  return searchText ? `${categoryId}_search_${searchText}` : `${categoryId}`;
+};
 
 interface Props {
   categoryId: number;
@@ -27,8 +39,8 @@ interface Props {
   navigation: LibraryScreenProps['navigation'];
   pickAndImport: () => void;
   isFocused?: boolean;
-  libraryChangeKey?: number; // Add dependency to trigger reloads when library changes
-  onSelectAllVisible?: (novelIds: number[]) => void; // Add callback for select all visible
+  libraryChangeKey?: number;
+  onSelectAllVisible?: (novelIds: number[]) => void;
 }
 
 export const LibraryView: React.FC<Props> = ({
@@ -41,7 +53,7 @@ export const LibraryView: React.FC<Props> = ({
   pickAndImport,
   navigation,
   isFocused = true,
-  libraryChangeKey,
+  libraryChangeKey: _libraryChangeKey,
   onSelectAllVisible,
 }) => {
   const theme = useTheme();
@@ -49,17 +61,54 @@ export const LibraryView: React.FC<Props> = ({
     filter,
     sortOrder,
     downloadedOnlyMode = false,
+    libraryLoadLimit = 50,
   } = useLibrarySettings();
 
-  const [novels, setNovels] = useState<NovelInfo[]>([]);
-  const [hasMoreData, setHasMoreData] = useState(true);
+  const categoryKey = getCategoryKey(categoryId, searchText);
+
+  // Initialize from stored state or empty
+  const [novels, setNovels] = useState<NovelInfo[]>(() => {
+    const stored = categoryStates.get(categoryKey);
+    return stored?.novels || [];
+  });
+  const [hasMoreData, setHasMoreData] = useState(() => {
+    const stored = categoryStates.get(categoryKey);
+    return stored?.hasMoreData ?? true;
+  });
   const [refreshing, setRefreshing] = useState(false);
+  const [initialScrollOffset, _setInitialScrollOffset] = useState(() => {
+    const stored = categoryStates.get(categoryKey);
+    return stored?.scrollOffset || 0;
+  });
+
+  // Save state when component unmounts or category/search changes
+  useEffect(() => {
+    return () => {
+      if (novels.length > 0) {
+        categoryStates.set(categoryKey, {
+          novels,
+          scrollOffset: initialScrollOffset,
+          hasMoreData,
+        });
+      }
+    };
+  }, [categoryKey, novels, initialScrollOffset, hasMoreData]);
 
   const loadNovels = useCallback(
     (reset: boolean = false, currentNovels: NovelInfo[] = []) => {
       if (!isFocused) return;
 
       const offset = reset ? 0 : currentNovels.length;
+      const pageSize =
+        libraryLoadLimit === -1 ? 999999 : libraryLoadLimit || PAGE_SIZE;
+
+      // Get hidden plugins filter
+      let hiddenPlugins: Set<string> = new Set();
+      try {
+        hiddenPlugins = new Set(
+          JSON.parse(MMKVStorage.getString('LIBRARY_HIDDEN_PLUGINS') || '[]'),
+        );
+      } catch {}
 
       if (searchText.trim()) {
         const searchResults = getLibraryNovelsFromDb(
@@ -67,11 +116,11 @@ export const LibraryView: React.FC<Props> = ({
           filter,
           searchText,
           downloadedOnlyMode,
-          PAGE_SIZE,
+          pageSize,
           offset,
           undefined,
           categoryNovelIds,
-        );
+        ).filter(novel => !hiddenPlugins.has(novel.pluginId));
 
         if (reset) {
           setNovels(searchResults);
@@ -79,18 +128,20 @@ export const LibraryView: React.FC<Props> = ({
           setNovels(prev => [...prev, ...searchResults]);
         }
 
-        setHasMoreData(searchResults.length === PAGE_SIZE);
+        setHasMoreData(
+          libraryLoadLimit !== -1 && searchResults.length === pageSize,
+        );
       } else {
         const categoryNovels = getLibraryNovelsFromDb(
           sortOrder,
           filter,
           undefined,
           downloadedOnlyMode,
-          PAGE_SIZE,
+          pageSize,
           offset,
           undefined,
           categoryNovelIds,
-        );
+        ).filter(novel => !hiddenPlugins.has(novel.pluginId));
 
         if (reset) {
           setNovels(categoryNovels);
@@ -98,7 +149,9 @@ export const LibraryView: React.FC<Props> = ({
           setNovels(prev => [...prev, ...categoryNovels]);
         }
 
-        setHasMoreData(categoryNovels.length === PAGE_SIZE);
+        setHasMoreData(
+          libraryLoadLimit !== -1 && categoryNovels.length === pageSize,
+        );
       }
     },
     [
@@ -108,38 +161,36 @@ export const LibraryView: React.FC<Props> = ({
       filter,
       downloadedOnlyMode,
       categoryNovelIds,
+      libraryLoadLimit,
     ],
   );
 
   const loadMoreNovels = useCallback(() => {
-    if (hasMoreData) {
+    if (hasMoreData && libraryLoadLimit !== -1) {
       loadNovels(false, novels);
     }
-  }, [hasMoreData, loadNovels, novels]);
+  }, [hasMoreData, loadNovels, novels, libraryLoadLimit]);
 
+  // Only reset novels when filters change or it's a new search/category without stored state
   useEffect(() => {
-    setNovels([]);
-    setHasMoreData(true);
     if (isFocused) {
-      loadNovels(true);
+      const stored = categoryStates.get(categoryKey);
+      // Only force reload if no stored data exists (first load of this category)
+      if (!stored) {
+        loadNovels(true);
+      }
+      // If we have stored data, use it (no reload) - prevents refreshes during downloads
+      // The libraryChangeKey dependency has been removed to prevent unnecessary refreshes
     }
   }, [
-    searchText,
-    categoryId,
+    categoryKey,
+    isFocused,
     sortOrder,
     filter,
     downloadedOnlyMode,
-    libraryChangeKey,
-    isFocused,
     loadNovels,
+    // Removed libraryChangeKey - it was causing full refreshes on every download
   ]);
-
-  useEffect(() => {
-    if (isFocused && novels.length === 0) {
-      setHasMoreData(true);
-      loadNovels(true);
-    }
-  }, [isFocused, novels.length, loadNovels]);
 
   // Notify parent component about visible novels for select all functionality
   useEffect(() => {
@@ -184,6 +235,13 @@ export const LibraryView: React.FC<Props> = ({
 
   const onRefresh = useCallback(() => {
     if (categoryId === 2) {
+      return;
+    }
+    const updateOnPull =
+      MMKVStorage.getBoolean(UPDATE_ON_PULL_REFRESH_ENABLED) ?? true;
+    if (!updateOnPull) {
+      // Just refresh the local data without triggering update task
+      loadNovels(true);
       return;
     }
     setRefreshing(true);

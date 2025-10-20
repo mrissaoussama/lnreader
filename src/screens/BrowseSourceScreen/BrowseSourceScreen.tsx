@@ -338,12 +338,11 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         />
       ) : (
         <NovelList
-          data={filteredNovelList}
+          data={filteredNovelList.filter(
+            item => !hideInLibraryItems || !novelInLibrary(pluginId, item.path),
+          )}
           inSource
           renderItem={({ item }) => {
-            if (hideInLibraryItems && novelInLibrary(pluginId, item.path)) {
-              return null;
-            }
             const inLibrary = novelInLibrary(pluginId, item.path);
 
             return (

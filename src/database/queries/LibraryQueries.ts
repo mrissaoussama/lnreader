@@ -336,6 +336,7 @@ export const getLibraryNovelsFromDb = (
   offset?: number,
   categoryId?: number,
   categoryNovelIds?: number[],
+  hiddenPlugins?: string[], // Add plugin filter parameter
 ): NovelInfo[] => {
   let query = `SELECT n.*, 
                       CASE WHEN nt.novelId IS NOT NULL THEN 1 ELSE 0 END as hasNote
@@ -352,6 +353,13 @@ export const getLibraryNovelsFromDb = (
   }
 
   query += ' WHERE n.inLibrary = 1';
+
+  // Add plugin filter - exclude hidden plugins but always show local novels
+  if (hiddenPlugins && hiddenPlugins.length > 0) {
+    const placeholders = hiddenPlugins.map(() => '?').join(',');
+    query += ` AND (n.pluginId NOT IN (${placeholders}) OR n.pluginId = 'local' OR n.isLocal = 1)`;
+    params.push(...hiddenPlugins);
+  }
 
   if (filter) {
     query += ` AND ${filter} `;
@@ -484,6 +492,7 @@ export const getCategoryNovelCounts = (
   filter?: string,
   searchText?: string,
   downloadedOnlyMode?: boolean,
+  hiddenPlugins?: string[],
 ): number[] => {
   return categoryNovelIds.map(novelIds => {
     if (novelIds.length === 0) return 0;
@@ -497,6 +506,15 @@ export const getCategoryNovelCounts = (
                    .join(',')})`;
 
     const params: (string | number)[] = [...novelIds];
+
+    // Filter out hidden plugins
+    if (hiddenPlugins && hiddenPlugins.length > 0) {
+      query += ` AND n.pluginId NOT IN (${hiddenPlugins
+        .map(() => '?')
+        .join(',')})`;
+      params.push(...hiddenPlugins);
+    }
+
     if (searchText?.trim()) {
       query += ` AND (
         n.name LIKE ? OR
@@ -578,14 +596,14 @@ export const getLibraryWithCategory = ({
   const preparedArgument: (string | number | null)[] = [];
 
   if (filter) {
-    // query += ` AND ${filter} `;
+    query += ` AND n.id IN (SELECT novelId FROM NovelCategory WHERE ${filter}) `;
   }
   if (downloadedOnlyMode) {
     query += ' ' + LibraryFilter.DownloadedOnly;
   }
 
   if (searchText) {
-    query += ' AND name LIKE ? ';
+    query += ' AND n.name LIKE ? ';
     preparedArgument.push(`%${searchText}%`);
   }
 

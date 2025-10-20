@@ -6,6 +6,7 @@ import { downloadFile } from '@plugins/helpers/fetch';
 import ServiceManager from '@services/ServiceManager';
 import { db } from '@database/db';
 import NativeFile from '@specs/NativeFile';
+import { getNovelById } from '@database/queries/NovelQueries';
 
 const updateNovelMetadata = async (
   pluginId: string,
@@ -29,31 +30,35 @@ const updateNovelMetadata = async (
     cover = novelCoverUri + '?' + Date.now();
   }
 
-  db.runSync(
-    `UPDATE Novel SET 
-          name = ?, cover = ?, summary = ?, author = ?, artist = ?, 
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE Novel SET
+          name = ?, cover = ?, summary = ?, author = ?, artist = ?,
           genres = ?, status = ?, totalPages = ?
           WHERE id = ?
         `,
-    [
-      name,
-      cover || null,
-      summary || null,
-      author || 'unknown',
-      artist || null,
-      genres || null,
-      status || null,
-      totalPages || 0,
-      novelId,
-    ],
-  );
+      [
+        name,
+        cover || null,
+        summary || null,
+        author || 'unknown',
+        artist || null,
+        genres || null,
+        status || null,
+        totalPages || 0,
+        novelId,
+      ],
+    );
+  });
 };
 
-const updateNovelTotalPages = (novelId: number, totalPages: number) => {
-  db.runSync('UPDATE Novel SET totalPages = ? WHERE id = ?', [
-    totalPages,
-    novelId,
-  ]);
+const updateNovelTotalPages = async (novelId: number, totalPages: number) => {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE Novel SET totalPages = ? WHERE id = ?', [
+      totalPages,
+      novelId,
+    ]);
+  });
 };
 
 const updateNovelChapters = (
@@ -63,7 +68,9 @@ const updateNovelChapters = (
   downloadNewChapters?: boolean,
   page?: string,
 ) =>
-  db.withExclusiveTransactionAsync(async tx => {
+  db.withExclusiveTransactionAsync(async () => {
+    const novel = await getNovelById(novelId);
+    const pluginId = novel?.pluginId || '';
     for (let position = 0; position < chapters.length; position++) {
       const {
         name,
@@ -73,7 +80,7 @@ const updateNovelChapters = (
         chapterNumber,
       } = chapters[position];
       const chapterPage = page || customPage || '1';
-      const st = await tx.prepareAsync(
+      const st = await db.prepareAsync(
         `
           INSERT INTO Chapter (path, name, releaseTime, novelId, updatedTime, chapterNumber, page, position)
           SELECT ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?
@@ -104,13 +111,16 @@ const updateNovelChapters = (
             name: 'DOWNLOAD_CHAPTER',
             data: {
               chapterId: insertId,
+              novelId,
+              pluginId,
               novelName: novelName,
               chapterName: name,
+              novelCover: novel.cover,
             },
           });
         }
       } else {
-        await tx.runAsync(
+        await db.runAsync(
           `
               UPDATE Chapter SET
                 name = ?, releaseTime = ?, updatedTime = datetime('now','localtime'), page = ?, position = ?
@@ -153,7 +163,7 @@ const updateNovel = async (
     await updateNovelMetadata(pluginId, novelId, novel);
   } else if (novel.totalPages) {
     // at least update totalPages,
-    updateNovelTotalPages(novelId, novel.totalPages);
+    await updateNovelTotalPages(novelId, novel.totalPages);
   }
 
   await updateNovelChapters(
@@ -173,8 +183,10 @@ const updateNovelPage = async (
 ) => {
   const { downloadNewChapters } = options;
   const sourcePage = await fetchPage(pluginId, novelPath, page);
+  const novel = await getNovelById(novelId);
+  const novelName = novel?.name || '';
   updateNovelChapters(
-    pluginId,
+    novelName,
     novelId,
     sourcePage.chapters || [],
     downloadNewChapters,

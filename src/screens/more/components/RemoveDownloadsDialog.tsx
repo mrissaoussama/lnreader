@@ -11,6 +11,7 @@ interface RemoveDownloadsDialogProps {
   hideDialog: () => void;
   theme: ThemeColors;
   onSubmit: () => void;
+  chapterCount: number;
 }
 
 const RemoveDownloadsDialog = ({
@@ -18,6 +19,7 @@ const RemoveDownloadsDialog = ({
   hideDialog,
   theme,
   onSubmit,
+  chapterCount,
 }: RemoveDownloadsDialogProps) => {
   return (
     <Portal>
@@ -41,6 +43,13 @@ const RemoveDownloadsDialog = ({
         >
           {getString('downloadScreen.removeDownloadsWarning')}
         </Dialog.Title>
+        <Dialog.Content>
+          <Dialog.Title
+            style={[{ color: theme.onSurfaceVariant }, styles.subTitle]}
+          >
+            {`Delete ${chapterCount} downloaded chapters?`}
+          </Dialog.Title>
+        </Dialog.Content>
         <Dialog.Actions>
           <Button onPress={hideDialog}>{getString('common.cancel')}</Button>
           <Button onPress={onSubmit}>{getString('common.ok')}</Button>
@@ -56,6 +65,9 @@ const styles = StyleSheet.create({
   fontSize: {
     letterSpacing: 0,
     fontSize: 16,
+  },
+  subTitle: {
+    fontSize: 14,
   },
   borderRadius: { borderRadius: 6 },
 });

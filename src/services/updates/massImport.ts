@@ -77,6 +77,7 @@ const processUrl = async (
   workingPlugins: Plugin[],
   results: ImportResult,
   taskId?: string, // Add taskId for cancellation checks
+  categoryId?: number | null, // Add categoryId parameter
 ) => {
   try {
     // Check for cancellation at the start
@@ -206,10 +207,18 @@ const processUrl = async (
                   [existingNovel.id],
                 );
 
-                await db.runAsync(
-                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
-                  [existingNovel.id],
-                );
+                // Use selected categoryId or default category
+                if (categoryId) {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                    [existingNovel.id, categoryId],
+                  );
+                } else {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                    [existingNovel.id],
+                  );
+                }
               });
             });
 
@@ -285,6 +294,7 @@ export const massImport = async (
   }
 
   const domainDelay = data.delay || 500;
+  const categoryId = data.categoryId; // Get selected category ID
 
   // Process and filter URLs
   const rawUrls = data.urls
@@ -445,10 +455,18 @@ export const massImport = async (
                     [preCheckNovel.id],
                   );
 
-                  await db.runAsync(
-                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
-                    [preCheckNovel.id],
-                  );
+                  // Use selected categoryId or default category
+                  if (categoryId) {
+                    await db.runAsync(
+                      'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                      [preCheckNovel.id, categoryId],
+                    );
+                  } else {
+                    await db.runAsync(
+                      'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                      [preCheckNovel.id],
+                    );
+                  }
                 });
               });
 
@@ -517,7 +535,7 @@ export const massImport = async (
             progress: processedCount / totalUrls,
           }));
 
-          await processUrl(url, workingPlugins, results, taskId); // Pass taskId
+          await processUrl(url, workingPlugins, results, taskId, categoryId); // Pass taskId
           processedCount++;
 
           // Apply delay between same domain fetches, but not after the last URL in the group
@@ -583,11 +601,18 @@ export const massImport = async (
                   [stagedNovel.novelId],
                 );
 
-                // Add to default category
-                await db.runAsync(
-                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
-                  [stagedNovel.novelId],
-                );
+                // Use selected categoryId or default category
+                if (categoryId) {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                    [stagedNovel.novelId, categoryId],
+                  );
+                } else {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                    [stagedNovel.novelId],
+                  );
+                }
               }
             });
           });
@@ -614,10 +639,18 @@ export const massImport = async (
                   [stagedNovel.novelId],
                 );
 
-                await db.runAsync(
-                  'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
-                  [stagedNovel.novelId],
-                );
+                // Use selected categoryId or default category
+                if (categoryId) {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                    [stagedNovel.novelId, categoryId],
+                  );
+                } else {
+                  await db.runAsync(
+                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                    [stagedNovel.novelId],
+                  );
+                }
               });
 
               results.added.push({

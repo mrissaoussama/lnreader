@@ -24,7 +24,7 @@ const LibraryLoadLimitModal: React.FC<LibraryLoadLimitModalProps> = ({
 }) => {
   const { setLibrarySettings } = useLibrarySettings();
 
-  const loadLimits = [25, 50, 100, 200, 500, 1000];
+  const loadLimits = [25, 50, 100, 200, 500, 1000, -1]; // -1 represents "All"
 
   return (
     <Portal>
@@ -42,10 +42,11 @@ const LibraryLoadLimitModal: React.FC<LibraryLoadLimitModalProps> = ({
           improve performance but require scrolling to see more novels.
         </Text>
         {loadLimits.map(limit => {
+          const isAll = limit === -1;
           return (
             <RadioButton
               key={limit}
-              label={`${limit} novels`}
+              label={isAll ? 'All (No limit)' : `${limit} novels`}
               status={libraryLoadLimit === limit}
               onPress={() => {
                 setLibrarySettings({ libraryLoadLimit: limit });

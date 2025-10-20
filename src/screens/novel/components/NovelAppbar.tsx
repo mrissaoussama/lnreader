@@ -74,6 +74,8 @@ const NovelAppbar = ({
   libraryMatchesCount,
   hasNote,
   headerOpacity,
+  openDeleteRangeModal,
+  clearAndRefreshChapters,
 }: {
   novel: NovelInfo | undefined;
   chapters: ChapterInfo[];
@@ -93,6 +95,8 @@ const NovelAppbar = ({
   libraryMatchesCount: number;
   hasNote: boolean;
   headerOpacity: SharedValue<number>;
+  openDeleteRangeModal: () => void;
+  clearAndRefreshChapters: () => void;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
     const backgroundColor = interpolateColor(
@@ -159,8 +163,17 @@ const NovelAppbar = ({
         label: getString('novelScreen.download.delete'),
         onPress: () => deleteChapters(),
       },
+      {
+        label: getString('novelScreen.deleteRange') || 'Delete range',
+        onPress: openDeleteRangeModal,
+      },
     ];
-  }, [deleteChapters, downloadChapters, downloadCustomChapterModal]);
+  }, [
+    deleteChapters,
+    downloadChapters,
+    downloadCustomChapterModal,
+    openDeleteRangeModal,
+  ]);
 
   const openDlMenu = useCallback(() => showDownloadMenu(true), []);
   const closeDlMenu = useCallback(() => showDownloadMenu(false), []);
@@ -243,6 +256,12 @@ const NovelAppbar = ({
                 label: 'View All Alternative Titles',
                 onPress: () => {
                   showAlternativeTitlesModal();
+                },
+              },
+              {
+                label: 'Clear and Refresh Chapters',
+                onPress: () => {
+                  clearAndRefreshChapters();
                 },
               },
             ]}

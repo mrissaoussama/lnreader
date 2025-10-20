@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Modal, Portal, Button, Checkbox } from 'react-native-paper';
+import { Modal, Button, Checkbox } from 'react-native-paper';
 import { useTheme } from '@hooks/persisted';
 import { ThemeColors } from '@theme/types';
 import ServiceManager from '@services/ServiceManager';
@@ -49,48 +49,43 @@ const TrackerSyncDialog: React.FC<TrackerSyncDialogProps> = ({
   };
 
   return (
-    <Portal>
-      <Modal
-        visible={visible}
-        onDismiss={onDismiss}
-        contentContainerStyle={[
-          styles.modal,
-          { backgroundColor: theme.surface },
-        ]}
-      >
-        <Text style={[styles.title, { color: theme.onSurface }]}>
-          Tracker Sync - {syncType.charAt(0).toUpperCase() + syncType.slice(1)}
-        </Text>
+    <Modal
+      visible={visible}
+      onDismiss={onDismiss}
+      contentContainerStyle={[styles.modal, { backgroundColor: theme.surface }]}
+    >
+      <Text style={[styles.title, { color: theme.onSurface }]}>
+        Tracker Sync - {syncType.charAt(0).toUpperCase() + syncType.slice(1)}
+      </Text>
 
-        <Text style={[styles.description, { color: theme.onSurfaceVariant }]}>
-          {getSyncDescription()}
-        </Text>
+      <Text style={[styles.description, { color: theme.onSurfaceVariant }]}>
+        {getSyncDescription()}
+      </Text>
 
-        {syncType !== 'all' && (
-          <View style={styles.checkboxContainer}>
-            <Checkbox
-              status={forceUpdate ? 'checked' : 'unchecked'}
-              onPress={() => setForceUpdate(!forceUpdate)}
-            />
-            <Text
-              style={[styles.checkboxLabel, { color: theme.onSurface }]}
-              onPress={() => setForceUpdate(!forceUpdate)}
-            >
-              Force update even if progress would decrease
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.buttonContainer}>
-          <Button mode="outlined" onPress={onDismiss} style={styles.button}>
-            Cancel
-          </Button>
-          <Button mode="contained" onPress={startSync} style={styles.button}>
-            Start Sync
-          </Button>
+      {syncType !== 'all' && (
+        <View style={styles.checkboxContainer}>
+          <Checkbox
+            status={forceUpdate ? 'checked' : 'unchecked'}
+            onPress={() => setForceUpdate(!forceUpdate)}
+          />
+          <Text
+            style={[styles.checkboxLabel, { color: theme.onSurface }]}
+            onPress={() => setForceUpdate(!forceUpdate)}
+          >
+            Force update even if progress would decrease
+          </Text>
         </View>
-      </Modal>
-    </Portal>
+      )}
+
+      <View style={styles.buttonContainer}>
+        <Button mode="outlined" onPress={onDismiss} style={styles.button}>
+          Cancel
+        </Button>
+        <Button mode="contained" onPress={startSync} style={styles.button}>
+          Start Sync
+        </Button>
+      </View>
+    </Modal>
   );
 };
 

@@ -96,6 +96,14 @@ export interface CCategory extends Category {
   novelsCount: number;
 }
 
+export type ChapterUpdate = {
+  id: number;
+  isDownloaded?: 0 | 1;
+  unread?: 0 | 1;
+  readTime?: string | null;
+  progress?: number | null;
+};
+
 export interface LibraryStats {
   novelsCount?: number;
   chaptersCount?: number;

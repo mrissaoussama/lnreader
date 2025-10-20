@@ -250,6 +250,17 @@ export default function useChapter(
     [getChapter, nextChapter, prevChapter],
   );
 
+  const reloadChapter = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    chapterTextCache.delete(chapter.id);
+    await getChapter(chapter);
+  }, [chapter, getChapter, chapterTextCache]);
+
+  useEffect(() => {
+    getChapter();
+  }, [getChapter]);
+
   useEffect(() => {
     if (!incognitoMode) {
       insertHistory(chapter.id);
@@ -269,46 +280,32 @@ export default function useChapter(
     }
   }, [chapter, chapterText, getChapter]);
 
-  const refetch = useCallback(() => {
-    setLoading(true);
-    setError('');
-    getChapter();
-  }, [getChapter]);
-
   return useMemo(
     () => ({
-      hidden,
       chapter,
       nextChapter,
       prevChapter,
-      error,
-      loading,
       chapterText,
-      setHidden,
+      loading,
+      error,
+      hidden,
       saveProgress,
-      hideHeader,
       navigateChapter,
-      refetch,
-      setChapter,
-      setLoading,
-      getChapter,
+      hideHeader,
+      reloadChapter,
     }),
     [
-      hidden,
       chapter,
       nextChapter,
       prevChapter,
-      error,
-      loading,
       chapterText,
-      setHidden,
+      loading,
+      error,
+      hidden,
       saveProgress,
-      hideHeader,
       navigateChapter,
-      refetch,
-      setChapter,
-      setLoading,
-      getChapter,
+      hideHeader,
+      reloadChapter,
     ],
   );
 }

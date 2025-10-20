@@ -14,10 +14,9 @@ import NativeZipArchive from '@specs/NativeZipArchive';
 import * as Clipboard from 'expo-clipboard';
 import { getAllNovels } from '@database/queries/NovelQueries';
 import { getDownloadedChapters } from '@database/queries/ChapterQueries';
-import { getPlugin } from '@plugins/pluginManager';
 import { NOVEL_STORAGE } from '@utils/Storages';
-import { BackupNovel, NovelInfo } from '@database/types';
-import { getFirstAsync, runAsync, getAllAsync } from '@database/utils/helpers';
+import { BackupNovel } from '@database/types';
+import { runAsync } from '@database/utils/helpers';
 import { BackupEntryName } from '../types';
 
 export interface LocalRestoreResult {
@@ -69,6 +68,16 @@ const validatePermissions = (permissions: any): void => {
       `Invalid directory URI type: ${typeof permissions.directoryUri}`,
     );
   }
+
+  // Must be a SAF tree URI on Android, e.g., content://.../tree/Primary%3ADocuments
+  const uri: string = permissions.directoryUri as string;
+  if (!uri.startsWith('content://') || !uri.includes('/tree/')) {
+    throw new Error('Invalid directory URI format for Android SAF');
+  }
+};
+
+const isValidTreeUri = (uri?: string): boolean => {
+  return !!uri && uri.startsWith('content://') && uri.includes('/tree/');
 };
 
 /**
@@ -77,19 +86,17 @@ const validatePermissions = (permissions: any): void => {
 const requestDirectoryPermissions = async (
   preselectedDirectoryUri?: string,
 ): Promise<{ granted: boolean; directoryUri: string }> => {
-  if (preselectedDirectoryUri) {
+  if (isValidTreeUri(preselectedDirectoryUri)) {
     return {
       granted: true,
-      directoryUri: preselectedDirectoryUri,
+      directoryUri: preselectedDirectoryUri!,
     };
   }
 
-  try {
-    return await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    throw new Error(`Permission request failed: ${message}`);
-  }
+  // Do not attempt to open SAF picker from background; instruct user to preselect
+  throw new Error(
+    'No backup folder selected. Please pick a backup folder first from the Backup screen.',
+  );
 };
 
 /**
@@ -99,6 +106,13 @@ export const createBackup = async (
   includeDownloads: boolean = false,
   setMeta?: MetaSetter,
   preselectedDirectoryUri?: string,
+  options?: {
+    includeCovers?: boolean;
+    includeChapters?: boolean;
+    includeSettings?: boolean;
+    includeRepositories?: boolean;
+    includePlugins?: boolean;
+  },
 ): Promise<void> => {
   const datetime = dayjs().format('YYYY-MM-DD_HH_mm_ss');
   const fileName = `lnreader_backup_${datetime}.zip`;
@@ -116,7 +130,13 @@ export const createBackup = async (
     const permissions = await requestDirectoryPermissions(
       preselectedDirectoryUri,
     );
-    validatePermissions(permissions);
+
+    try {
+      validatePermissions(permissions);
+    } catch (e: any) {
+      showToast('Invalid backup folder. Please pick a different folder.');
+      throw e;
+    }
 
     if (await NativeFile.exists(uniqueCacheDir)) {
       await NativeFile.unlink(uniqueCacheDir);
@@ -127,7 +147,12 @@ export const createBackup = async (
       progressText: getString('backupScreen.preparingData'),
     });
 
-    await prepareBackupData(uniqueCacheDir, includeDownloads);
+    // Prepare backup data with options
+    await prepareBackupData(
+      uniqueCacheDir,
+      includeDownloads || options?.includeChapters !== false,
+      options,
+    );
 
     updateProgress(setMeta, {
       progress: 0.4,
@@ -136,11 +161,13 @@ export const createBackup = async (
         : getString('backupScreen.preparingData'),
     });
 
+    // Include files based on options
     if (includeDownloads) {
       await includeDownloadedFiles(uniqueCacheDir);
-    } else {
-      await includeCoversOnly(uniqueCacheDir);
     }
+
+    // Always include local novel files regardless of includeDownloads
+    await includeLocalNovelFiles(uniqueCacheDir);
 
     updateProgress(setMeta, {
       progress: 0.7,
@@ -154,17 +181,36 @@ export const createBackup = async (
       progressText: 'Saving backup file...',
     });
 
-    const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-      permissions.directoryUri,
-      fileName,
-      'application/zip',
-    );
+    let fileUri: string;
+    try {
+      fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        permissions.directoryUri,
+        fileName,
+        'application/zip',
+      );
+    } catch (createErr: any) {
+      throw new Error('Failed to create backup file in the selected folder.');
+    }
 
     if (!(await NativeFile.exists(zipPath))) {
       throw new Error('Backup zip file was not created');
     }
 
-    await NativeFile.copyFile(zipPath, fileUri);
+    try {
+      await NativeFile.copyFile(zipPath, fileUri);
+    } catch (copyErr: unknown) {
+      const copyErrMsg =
+        copyErr instanceof Error ? copyErr.message : String(copyErr);
+      throw new Error(`Failed to save backup file: ${copyErrMsg}`);
+    }
+
+    // Clean up temp files
+    if (await NativeFile.exists(uniqueCacheDir)) {
+      await NativeFile.unlink(uniqueCacheDir);
+    }
+    if (await NativeFile.exists(zipPath)) {
+      await NativeFile.unlink(zipPath);
+    }
 
     const backupTypeText = includeDownloads ? ' (with downloads)' : '';
 
@@ -190,32 +236,7 @@ export const createBackup = async (
 };
 
 /**
- * Copies only novel cover images to backup directory.
- */
-const includeCoversOnly = async (cacheDirPath: string): Promise<void> => {
-  const novelsDirPath = `${cacheDirPath}/novels`;
-  const allNovels = await getAllNovels();
-
-  for (const novel of allNovels) {
-    if (novel.cover?.startsWith('file://')) {
-      const coverPath = novel.cover.replace('file://', '').split('?')[0];
-
-      if (await NativeFile.exists(coverPath)) {
-        const backupNovelPath = `${novelsDirPath}/${novel.pluginId}/${novel.id}`;
-
-        if (!(await NativeFile.exists(backupNovelPath))) {
-          await NativeFile.mkdir(backupNovelPath);
-        }
-
-        const backupCoverPath = `${backupNovelPath}/cover.png`;
-        await NativeFile.copyFile(coverPath, backupCoverPath);
-      }
-    }
-  }
-};
-
-/**
- * Copies downloaded chapter files to backup directory.
+ * Copies downloaded chapter files to backup directory as novels/{pluginId}/{novelId}/{chapterId}/
  */
 const includeDownloadedFiles = async (cacheDirPath: string): Promise<void> => {
   const novelsDirPath = `${cacheDirPath}/novels`;
@@ -229,12 +250,49 @@ const includeDownloadedFiles = async (cacheDirPath: string): Promise<void> => {
       await copyChapterFiles(sourceChapterPath, backupChapterPath);
     }
   }
-
-  await includeCoversOnly(cacheDirPath);
 };
 
 /**
- * Copies HTML chapter files from source to destination.
+ * Always include local novel chapter files in backup regardless of includeDownloads option.
+ * Scans NOVEL_STORAGE/local/{novelId}/{chapterId}/ and copies HTML files.
+ */
+const includeLocalNovelFiles = async (cacheDirPath: string): Promise<void> => {
+  const novelsDirPath = `${cacheDirPath}/${BackupEntryName.NOVELS}`;
+  const novels = await getAllNovels();
+  const localNovels = novels.filter(n => n.isLocal && n.inLibrary === 1);
+
+  for (const novel of localNovels) {
+    const pluginId = novel.pluginId; // expected 'local'
+    const sourceNovelDir = `${NOVEL_STORAGE}/${pluginId}/${novel.id}`;
+    const destNovelDir = `${novelsDirPath}/${pluginId}/${novel.id}`;
+
+    if (!(await NativeFile.exists(sourceNovelDir))) {
+      continue;
+    }
+
+    if (!(await NativeFile.exists(destNovelDir))) {
+      await NativeFile.mkdir(destNovelDir);
+    }
+
+    const entries = await NativeFile.readDir(sourceNovelDir);
+    for (const entry of entries) {
+      // Chapters are stored as subdirectories named by chapterId
+      if (!entry.isDirectory) continue;
+      if (!/^\d+$/.test(entry.name)) continue;
+
+      const chapterSource = `${sourceNovelDir}/${entry.name}`;
+      const chapterDest = `${destNovelDir}/${entry.name}`;
+
+      // Only copy if index.html exists to avoid copying stray folders
+      if (await NativeFile.exists(`${chapterSource}/index.html`)) {
+        await copyDirectoryRecursive(chapterSource, chapterDest);
+      }
+    }
+  }
+};
+
+/**
+ * Copies HTML chapter files from source to destination with mkdir and error handling.
  */
 const copyChapterFiles = async (
   sourcePath: string,
@@ -258,7 +316,10 @@ const copyChapterFiles = async (
     if (!item.isDirectory && !isNomediaFile && isHtmlFile) {
       const sourceItemPath = `${sourcePath}/${item.name}`;
       const destItemPath = `${destPath}/${item.name}`;
-      await NativeFile.copyFile(sourceItemPath, destItemPath);
+
+      try {
+        await NativeFile.copyFile(sourceItemPath, destItemPath);
+      } catch {}
     }
   }
 };
@@ -271,68 +332,6 @@ const zipDirectory = async (
   zipFilePath: string,
 ): Promise<void> => {
   await NativeZipArchive.zip(sourceDirPath, zipFilePath);
-};
-
-/**
- * Restores downloaded chapters for a novel from backup.
- */
-const restoreNovelDownloads = async (
-  backupNovelPath: string,
-  localNovelPath: string,
-  novel: NovelInfo,
-  backupNovelData: BackupNovel,
-): Promise<void> => {
-  if (!(await NativeFile.exists(backupNovelPath))) {
-    return;
-  }
-
-  const backupChapterDirs = await NativeFile.readDir(backupNovelPath);
-
-  for (const chapterDir of backupChapterDirs) {
-    if (!chapterDir.isDirectory || chapterDir.name === 'cover.png') {
-      continue;
-    }
-
-    const chapterId = parseInt(chapterDir.name, 10);
-    const backupChapter = backupNovelData.chapters?.find(
-      ch => ch.id === chapterId,
-    );
-
-    if (!backupChapter) {
-      continue;
-    }
-
-    const currentChapter = await getFirstAsync<{ id: number }>([
-      'SELECT * FROM Chapter WHERE novelId = ? AND path = ?',
-      [novel.id, backupChapter.path],
-    ]);
-
-    if (!currentChapter) {
-      continue;
-    }
-
-    const backupChapterPath = `${backupNovelPath}/${chapterDir.name}`;
-    const localChapterPath = `${localNovelPath}/${currentChapter.id}`;
-    const backupIndexFile = `${backupChapterPath}/index.html`;
-    const chapterIndexFile = `${localChapterPath}/index.html`;
-
-    if (await NativeFile.exists(backupIndexFile)) {
-      if (!(await NativeFile.exists(chapterIndexFile))) {
-        if (!(await NativeFile.exists(localChapterPath))) {
-          await NativeFile.mkdir(localChapterPath);
-        }
-
-        await copyDirectoryRecursive(backupChapterPath, localChapterPath);
-
-        await runAsync([
-          [
-            'UPDATE Chapter SET isDownloaded = 1 WHERE id = ?',
-            [currentChapter.id],
-          ],
-        ]);
-      }
-    }
-  }
 };
 
 /**
@@ -453,82 +452,19 @@ const generateRestoreSummary = (
 };
 
 /**
- * Fixes cover paths for all novels that have relative paths.
- * Converts paths like "/Novels/plugin/id/cover.png" or "Novels/plugin/id/cover.png"
- * to full file:// URIs like "file:///storage/.../Novels/plugin/id/cover.png"
- */
-const fixAllCoverPaths = async (): Promise<void> => {
-  const novelsToFix = await getAllAsync<{ id: number; cover: string }>([
-    `SELECT id, cover FROM Novel
-     WHERE cover IS NOT NULL
-     AND cover NOT LIKE 'file://%'
-     AND (cover LIKE '/Novels/%' OR cover LIKE 'Novels/%')`,
-  ]);
-
-  if (novelsToFix.length === 0) {
-    return;
-  }
-
-  const updates: [string, any[]][] = [];
-
-  for (const novel of novelsToFix) {
-    let fixedPath: string;
-
-    if (novel.cover.startsWith('/Novels/')) {
-      const relativePart = novel.cover.substring(8); // "plugin/id/cover.png"
-      fixedPath = `file://${NOVEL_STORAGE}/${relativePart}`;
-    } else if (novel.cover.startsWith('Novels/')) {
-      const relativePart = novel.cover.substring(7); // "plugin/id/cover.png"
-      fixedPath = `file://${NOVEL_STORAGE}/${relativePart}`;
-    } else {
-      continue;
-    }
-
-    updates.push([
-      'UPDATE Novel SET cover = ? WHERE id = ?',
-      [fixedPath, novel.id],
-    ]);
-  }
-
-  if (updates.length > 0) {
-    await runAsync(updates);
-  }
-};
-
-/**
- * Restores novel cover from backup.
- */
-const restoreNovelCover = async (
-  backupNovelPath: string,
-  localNovelPath: string,
-  novelId: number,
-): Promise<void> => {
-  const backupCoverPath = `${backupNovelPath}/cover.png`;
-
-  const coverExists = await NativeFile.exists(backupCoverPath);
-
-  if (coverExists) {
-    if (!(await NativeFile.exists(localNovelPath))) {
-      await NativeFile.mkdir(localNovelPath);
-    }
-
-    const localCoverPath = `${localNovelPath}/cover.png`;
-    await NativeFile.copyFile(backupCoverPath, localCoverPath);
-    const novelCoverUri = `file://${localCoverPath}?${Date.now()}`;
-
-    await runAsync([
-      ['UPDATE Novel SET cover = ? WHERE id = ?', [novelCoverUri, novelId]],
-    ]);
-  }
-};
-
-/**
  * Restores a backup archive to the local database and storage.
  */
 export const restoreBackup = async (
   includeDownloads: boolean = false,
   setMeta?: MetaSetter,
-  preselectedBackupFile?: any,
+  preselectedBackup?: any,
+  options?: {
+    includeCovers?: boolean;
+    includeChapters?: boolean;
+    includeSettings?: boolean;
+    includeRepositories?: boolean;
+    includePlugins?: boolean;
+  },
 ): Promise<void> => {
   const result: LocalRestoreResult = {
     added: [],
@@ -548,8 +484,8 @@ export const restoreBackup = async (
     const datetime = dayjs().format('YYYY-MM-DD_HH_mm_ss_SSS');
     const uniqueRestoreDir = `${CACHE_DIR_PATH}_restore_${datetime}`;
 
-    const backup = preselectedBackupFile
-      ? { canceled: false, assets: [preselectedBackupFile] }
+    const backup = preselectedBackup
+      ? { canceled: false, assets: [preselectedBackup] }
       : await DocumentPicker.getDocumentAsync({
           type: 'application/zip',
           copyToCacheDirectory: true,
@@ -571,23 +507,20 @@ export const restoreBackup = async (
       progressText: getString('backupScreen.restoringData'),
     });
 
-    await restoreDataMerge(uniqueRestoreDir, result, setMeta);
-
-    updateProgress(setMeta, {
-      progress: 0.5,
-      progressText: 'Fixing cover paths...',
+    await restoreDataMerge(uniqueRestoreDir, result, setMeta, {
+      includePlugins: options?.includePlugins,
     });
 
-    await fixAllCoverPaths();
+    if (options?.includeCovers !== false) {
+      updateProgress(setMeta, {
+        progress: 0.6,
+        progressText: includeDownloads
+          ? 'Restoring downloaded files...'
+          : 'Restoring covers...',
+      });
 
-    updateProgress(setMeta, {
-      progress: 0.6,
-      progressText: includeDownloads
-        ? 'Restoring downloaded files...'
-        : 'Restoring covers...',
-    });
-
-    await restoreNovelFiles(uniqueRestoreDir, result, includeDownloads);
+      await restoreNovelFiles(uniqueRestoreDir, result, includeDownloads);
+    }
 
     if (await NativeFile.exists(uniqueRestoreDir)) {
       await NativeFile.unlink(uniqueRestoreDir);
@@ -662,102 +595,128 @@ const buildSuccessMessage = (result: LocalRestoreResult): string => {
 };
 
 /**
- * Restores novel files and downloads from backup.
- * Iterates through backup JSON files (which contain pluginId and path) to match novels
- * using the combined key instead of old database IDs.
+ * Restores novel files and downloads from backup using per-novel folders.
+ * Assumes DB merge of novels/chapters is already done by restoreDataMerge.
  */
 const restoreNovelFiles = async (
   extractPath: string,
   result: LocalRestoreResult,
   restoreDownloads: boolean,
 ): Promise<void> => {
-  const backupDataPath = `${extractPath}/${BackupEntryName.NOVEL_AND_CHAPTERS}`;
-
-  if (!(await NativeFile.exists(backupDataPath))) {
+  const backupNovelsPath = `${extractPath}/novels`;
+  if (!(await NativeFile.exists(backupNovelsPath))) {
     return;
   }
 
-  const backupNovelsPath = `${extractPath}/novels`;
-  const hasNovelFiles = await NativeFile.exists(backupNovelsPath);
-
-  // Get all current novels to match against
   const currentNovels = await getAllNovels();
-  const currentNovelMap = new Map(
-    currentNovels.map(novel => [`${novel.pluginId}:${novel.path}`, novel]),
+  const mapByPath = new Map(
+    currentNovels
+      .filter(n => !n.isLocal)
+      .map(n => [`${n.pluginId}:${n.path}`, n]),
+  );
+  const mapByName = new Map(
+    currentNovels
+      .filter(n => n.isLocal)
+      .map(n => [`${n.pluginId}:${n.name}`, n]),
   );
 
-  // Iterate through backup JSON files to get pluginId and path
-  const backupFiles = await NativeFile.readDir(backupDataPath);
+  const pluginDirs = await NativeFile.readDir(backupNovelsPath);
+  for (const pluginDir of pluginDirs) {
+    if (!pluginDir.isDirectory) continue;
+    const pluginId = pluginDir.name;
+    const novelDirs = await NativeFile.readDir(
+      `${backupNovelsPath}/${pluginId}`,
+    );
 
-  for (const backupFile of backupFiles) {
-    if (backupFile.isDirectory || !backupFile.name.endsWith('.json')) {
-      continue;
-    }
+    for (const novelDir of novelDirs) {
+      if (!novelDir.isDirectory) continue;
+      const perNovelPath = `${backupNovelsPath}/${pluginId}/${novelDir.name}`;
+      const novelJsonPath = `${perNovelPath}/novel.json`;
+      if (!(await NativeFile.exists(novelJsonPath))) continue;
 
-    try {
-      const backupNovelData = JSON.parse(
-        await NativeFile.readFile(backupFile.path),
-      ) as BackupNovel;
-
-      if (!backupNovelData.pluginId || !backupNovelData.path) {
-        continue;
-      }
-
-      const plugin = getPlugin(backupNovelData.pluginId);
-      if (!plugin) {
-        if (!result.missingPlugins.includes(backupNovelData.pluginId)) {
-          result.missingPlugins.push(backupNovelData.pluginId);
+      try {
+        const jsonString = await NativeFile.readFile(novelJsonPath);
+        const jsonContent = JSON.parse(jsonString) as BackupNovel;
+        const key = jsonContent.isLocal
+          ? `${pluginId}:${jsonContent.name}`
+          : `${pluginId}:${jsonContent.path}`;
+        const currentNovel = (jsonContent.isLocal ? mapByName : mapByPath).get(
+          key,
+        );
+        if (!currentNovel) {
+          result.skipped.push({
+            name: jsonContent.name || novelDir.name,
+            reason: 'Novel not present after DB restore',
+          });
+          continue;
         }
-        continue;
-      }
 
-      const novelKey = `${backupNovelData.pluginId}:${backupNovelData.path}`;
-      const currentNovel = currentNovelMap.get(novelKey);
+        // Restore cover
+        await restoreNovelCover(perNovelPath, currentNovel.id);
 
-      if (!currentNovel) {
-        continue;
-      }
+        // Determine if we should restore chapter files
+        const shouldRestoreFiles = jsonContent.isLocal || restoreDownloads;
 
-      const oldNovelId = backupFile.name.replace('.json', '');
+        // Restore chapter files
+        if (shouldRestoreFiles && jsonContent.chapters) {
+          for (const chapter of jsonContent.chapters) {
+            const chapterId = chapter.id as number;
+            const backupChapterPath = `${perNovelPath}/${chapterId}`;
+            const localChapterPath = `${NOVEL_STORAGE}/${pluginId}/${currentNovel.id}/${chapterId}`;
 
-      const localPluginPath = `${NOVEL_STORAGE}/${backupNovelData.pluginId}`;
-      const localNovelPath = `${localPluginPath}/${currentNovel.id}`;
-
-      if (!(await NativeFile.exists(localPluginPath))) {
-        await NativeFile.mkdir(localPluginPath);
-      }
-
-      if (!(await NativeFile.exists(localNovelPath))) {
-        await NativeFile.mkdir(localNovelPath);
-      }
-
-      if (hasNovelFiles) {
-        const backupNovelPath = `${backupNovelsPath}/${backupNovelData.pluginId}/${oldNovelId}`;
-
-        if (await NativeFile.exists(backupNovelPath)) {
-          await restoreNovelCover(
-            backupNovelPath,
-            localNovelPath,
-            currentNovel.id,
-          );
-
-          if (restoreDownloads) {
-            await restoreNovelDownloads(
-              backupNovelPath,
-              localNovelPath,
-              currentNovel,
-              backupNovelData,
-            );
+            const backupIndexFile = `${backupChapterPath}/index.html`;
+            const localIndexFile = `${localChapterPath}/index.html`;
+            if (await NativeFile.exists(backupIndexFile)) {
+              if (!(await NativeFile.exists(localIndexFile))) {
+                if (!(await NativeFile.exists(localChapterPath))) {
+                  await NativeFile.mkdir(localChapterPath);
+                }
+                await copyDirectoryRecursive(
+                  backupChapterPath,
+                  localChapterPath,
+                );
+                await runAsync([
+                  [
+                    'UPDATE Chapter SET isDownloaded = 1 WHERE id = ?',
+                    [chapterId],
+                  ],
+                ]);
+              } else {
+                result.skipped.push({
+                  name: `${currentNovel.name} - ${chapter.name}`,
+                  reason: 'Chapter already exists',
+                });
+              }
+            }
           }
         }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errored.push({
+          name: novelDir.name,
+          reason: `Failed to restore novel files: ${msg}`,
+        });
       }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-
-      result.errored.push({
-        name: `File restore for ${backupFile.name}`,
-        reason: `Failed to restore files: ${message}`,
-      });
     }
+  }
+};
+
+/**
+ * Restores novel cover from backup novels/{novelId}/cover.png by writing base64 to DB.
+ */
+const restoreNovelCover = async (
+  backupNovelPath: string,
+  novelId: number,
+): Promise<void> => {
+  const backupCoverPath = `${backupNovelPath}/cover.png`;
+  if (await NativeFile.exists(backupCoverPath)) {
+    try {
+      const base64Data = await NativeFile.readFileAsBase64(backupCoverPath);
+      if (base64Data) {
+        await runAsync([
+          ['UPDATE Novel SET cover = ? WHERE id = ?', [base64Data, novelId]],
+        ]);
+      }
+    } catch {}
   }
 };

@@ -25,10 +25,8 @@ export const MassImportReportModal: React.FC<Props> = ({
   const styles = createStyles();
   const result = getMMKVObject<ImportResult>('LAST_MASS_IMPORT_RESULT');
 
-  if (
-    !result ||
-    (!result.added.length && !result.skipped.length && !result.errored.length)
-  ) {
+  // Better null checking to prevent "Cannot convert null value to object" error
+  if (!result) {
     return (
       <Portal>
         <Dialog
@@ -58,42 +56,87 @@ export const MassImportReportModal: React.FC<Props> = ({
     );
   }
 
+  // Additional safety checks for result properties
+  const added = Array.isArray(result.added) ? result.added : [];
+  const skipped = Array.isArray(result.skipped) ? result.skipped : [];
+  const errored = Array.isArray(result.errored) ? result.errored : [];
+
+  if (added.length === 0 && skipped.length === 0 && errored.length === 0) {
+    return (
+      <Portal>
+        <Dialog
+          visible={visible}
+          onDismiss={onDismiss}
+          style={{ backgroundColor: theme.surface }}
+        >
+          <Dialog.Title style={{ color: theme.onSurface }}>
+            No Report Available
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: theme.onSurface }}>
+              No import results to display
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={onDismiss}
+              theme={{ colors: { primary: theme.primary } }}
+              labelStyle={{ color: theme.onSurface }}
+            >
+              OK
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    );
+  }
+
   const copyAllLinks = () => {
     const allLinks = [
-      ...result.added.map(item => item.url),
-      ...result.skipped.map(item => item.url),
-      ...result.errored.map(item => item.url),
+      ...added.map(item => item?.url).filter(Boolean),
+      ...skipped.map(item => item?.url).filter(Boolean),
+      ...errored.map(item => item?.url).filter(Boolean),
     ].join('\n');
     Clipboard.setStringAsync(allLinks);
     showToast('Copied to clipboard');
   };
 
   const copyAdded = () => {
-    if (result.added.length === 0) {
+    if (added.length === 0) {
       showToast('Nothing to copy');
       return;
     }
-    Clipboard.setStringAsync(result.added.map(item => item.url).join('\n'));
+    Clipboard.setStringAsync(
+      added
+        .map(item => item?.url)
+        .filter(Boolean)
+        .join('\n'),
+    );
     showToast('Copied to clipboard');
   };
 
   const copySkipped = () => {
-    if (result.skipped.length === 0) {
+    if (skipped.length === 0) {
       showToast('Nothing to copy');
       return;
     }
-    Clipboard.setStringAsync(result.skipped.map(item => item.url).join('\n'));
-    showToast('Copied to clipboard');
+    Clipboard.setStringAsync(
+      skipped
+        .map(item => item?.url)
+        .filter(Boolean)
+        .join('\n'),
+    );
     showToast('Copied to clipboard');
   };
 
   const copyErrored = () => {
-    if (result.errored.length === 0) {
+    if (errored.length === 0) {
       showToast('Nothing to copy');
       return;
     }
-    const erroredText = result.errored
-      .map(item => `${item.url}\n${item.error}`)
+    const erroredText = errored
+      .filter(item => item?.url)
+      .map(item => `${item.url}\n${item.error || 'Unknown error'}`)
       .join('\n\n');
     Clipboard.setStringAsync(erroredText);
     showToast('Copied to clipboard');
@@ -101,16 +144,23 @@ export const MassImportReportModal: React.FC<Props> = ({
 
   const copyFullReport = () => {
     const fullReport = [
-      `=== Added Novels (${result.added.length}) ===`,
-      ...result.added.map(item => `${item.name} - ${item.url}`),
+      `=== Added Novels (${added.length}) ===`,
+      ...added
+        .filter(item => item?.name && item?.url)
+        .map(item => `${item.name} - ${item.url}`),
       '',
-      `=== Skipped Novels (${result.skipped.length}) ===`,
-      ...result.skipped.map(item => `${item.name} - ${item.url}`),
+      `=== Skipped Novels (${skipped.length}) ===`,
+      ...skipped
+        .filter(item => item?.name && item?.url)
+        .map(item => `${item.name} - ${item.url}`),
       '',
-      `=== Errored Novels (${result.errored.length}) ===`,
-      ...result.errored.map(
-        item => `${item.name} - ${item.url} - ${item.error}`,
-      ),
+      `=== Errored Novels (${errored.length}) ===`,
+      ...errored
+        .filter(item => item?.name && item?.url)
+        .map(
+          item =>
+            `${item.name} - ${item.url} - ${item.error || 'Unknown error'}`,
+        ),
     ].join('\n');
     Clipboard.setStringAsync(fullReport);
     showToast('Copied to clipboard');
@@ -129,8 +179,8 @@ export const MassImportReportModal: React.FC<Props> = ({
         <Dialog.Content>
           <ScrollView>
             <Text style={[styles.summaryText, { color: theme.onSurface }]}>
-              Added: {result.added.length} | Skipped: {result.skipped.length} |{' '}
-              Errored: {result.errored.length}
+              Added: {added.length} | Skipped: {skipped.length} | Errored:{' '}
+              {errored.length}
             </Text>
 
             <Text style={[styles.sectionHeader, { color: theme.onSurface }]}>
@@ -143,9 +193,9 @@ export const MassImportReportModal: React.FC<Props> = ({
                 onPress={copyAllLinks}
                 style={styles.button}
                 disabled={
-                  result.added.length === 0 &&
-                  result.skipped.length === 0 &&
-                  result.errored.length === 0
+                  added.length === 0 &&
+                  skipped.length === 0 &&
+                  errored.length === 0
                 }
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
@@ -157,12 +207,12 @@ export const MassImportReportModal: React.FC<Props> = ({
                 mode="outlined"
                 onPress={copyAdded}
                 style={styles.button}
-                disabled={result.added.length === 0}
+                disabled={added.length === 0}
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
                 icon="content-copy"
               >
-                Copy Added ({result.added.length})
+                Copy Added ({added.length})
               </Button>
             </View>
 
@@ -171,32 +221,32 @@ export const MassImportReportModal: React.FC<Props> = ({
                 mode="outlined"
                 onPress={copySkipped}
                 style={styles.button}
-                disabled={result.skipped.length === 0}
+                disabled={skipped.length === 0}
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
                 icon="content-copy"
               >
-                Copy Skipped ({result.skipped.length})
+                Copy Skipped ({skipped.length})
               </Button>
               <Button
                 mode="outlined"
                 onPress={copyErrored}
                 style={styles.button}
-                disabled={result.errored.length === 0}
+                disabled={errored.length === 0}
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
                 icon="alert-circle"
               >
-                Copy Errored ({result.errored.length})
+                Copy Errored ({errored.length})
               </Button>
             </View>
 
             <View style={styles.buttonRow}>
               <Button
                 mode="outlined"
-                onPress={() => copyErroredWithErrors(result.errored)}
+                onPress={() => copyErroredWithErrors(errored)}
                 style={styles.button}
-                disabled={result.errored.length === 0}
+                disabled={errored.length === 0}
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
                 icon="alert-circle"
@@ -205,9 +255,9 @@ export const MassImportReportModal: React.FC<Props> = ({
               </Button>
               <Button
                 mode="outlined"
-                onPress={() => copyErroredLinksOnly(result.errored)}
+                onPress={() => copyErroredLinksOnly(errored)}
                 style={styles.button}
-                disabled={result.errored.length === 0}
+                disabled={errored.length === 0}
                 theme={{ colors: { primary: theme.primary } }}
                 labelStyle={{ color: theme.onSurface }}
                 icon="link"
@@ -230,107 +280,113 @@ export const MassImportReportModal: React.FC<Props> = ({
             <Divider style={styles.divider} />
 
             {/* Detailed Lists */}
-            {result.added.length > 0 && (
+            {added.length > 0 && (
               <View style={styles.listContainer}>
                 <Text style={[styles.listHeader, { color: theme.onSurface }]}>
-                  Added Novels ({result.added.length})
+                  Added Novels ({added.length})
                 </Text>
                 <ScrollView style={styles.scrollView} nestedScrollEnabled>
-                  {result.added.slice(0, 10).map((item, index) => (
-                    <View key={`added-${index}`} style={styles.listItem}>
-                      <Text
-                        style={[styles.itemTitle, { color: theme.onSurface }]}
-                        onPress={() => {
-                          Clipboard.setStringAsync(item.url);
-                          showToast('Copied to clipboard');
-                        }}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        style={[styles.itemUrl, { color: theme.onSurface }]}
-                      >
-                        {item.url}
-                      </Text>
-                    </View>
-                  ))}
+                  {added.slice(0, 10).map((item, index) =>
+                    item && item.name && item.url ? (
+                      <View key={`added-${index}`} style={styles.listItem}>
+                        <Text
+                          style={[styles.itemTitle, { color: theme.onSurface }]}
+                          onPress={() => {
+                            Clipboard.setStringAsync(item.url);
+                            showToast('Copied to clipboard');
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text
+                          style={[styles.itemUrl, { color: theme.onSurface }]}
+                        >
+                          {item.url}
+                        </Text>
+                      </View>
+                    ) : null,
+                  )}
                 </ScrollView>
-                {result.added.length > 10 && (
+                {added.length > 10 && (
                   <Text style={[styles.moreText, { color: theme.onSurface }]}>
-                    And {result.added.length - 10} more...
+                    And {added.length - 10} more...
                   </Text>
                 )}
               </View>
             )}
 
-            {result.skipped.length > 0 && (
+            {skipped.length > 0 && (
               <View style={styles.listContainer}>
                 <Text style={[styles.listHeader, { color: theme.onSurface }]}>
-                  Skipped Novels ({result.skipped.length})
+                  Skipped Novels ({skipped.length})
                 </Text>
                 <ScrollView style={styles.scrollView} nestedScrollEnabled>
-                  {result.skipped.slice(0, 10).map((item, index) => (
-                    <View key={`skipped-${index}`} style={styles.listItem}>
-                      <Text
-                        style={[styles.itemTitle, { color: theme.onSurface }]}
-                        onPress={() => {
-                          Clipboard.setStringAsync(item.url);
-                          showToast('Copied to clipboard');
-                        }}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        style={[styles.itemUrl, { color: theme.onSurface }]}
-                      >
-                        {item.url}
-                      </Text>
-                    </View>
-                  ))}
+                  {skipped.slice(0, 10).map((item, index) =>
+                    item && item.name && item.url ? (
+                      <View key={`skipped-${index}`} style={styles.listItem}>
+                        <Text
+                          style={[styles.itemTitle, { color: theme.onSurface }]}
+                          onPress={() => {
+                            Clipboard.setStringAsync(item.url);
+                            showToast('Copied to clipboard');
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text
+                          style={[styles.itemUrl, { color: theme.onSurface }]}
+                        >
+                          {item.url}
+                        </Text>
+                      </View>
+                    ) : null,
+                  )}
                 </ScrollView>
-                {result.skipped.length > 10 && (
+                {skipped.length > 10 && (
                   <Text style={[styles.moreText, { color: theme.onSurface }]}>
-                    And {result.skipped.length - 10} more...
+                    And {skipped.length - 10} more...
                   </Text>
                 )}
               </View>
             )}
 
-            {result.errored.length > 0 && (
+            {errored.length > 0 && (
               <View style={styles.listContainer}>
                 <Text style={[styles.listHeader, { color: theme.onSurface }]}>
-                  Errored ({result.errored.length})
+                  Errored ({errored.length})
                 </Text>
                 <ScrollView style={styles.scrollView} nestedScrollEnabled>
-                  {result.errored.slice(0, 10).map((item, index) => (
-                    <View key={`errored-${index}`} style={styles.listItem}>
-                      <Text
-                        style={[styles.itemTitle, { color: theme.onSurface }]}
-                        onPress={() => {
-                          Clipboard.setStringAsync(
-                            `${item.url}\n${item.error}`,
-                          );
-                          showToast('Copied to clipboard');
-                        }}
-                      >
-                        {item.name}
-                      </Text>
-                      <Text
-                        style={[styles.itemUrl, { color: theme.onSurface }]}
-                      >
-                        {item.url}
-                      </Text>
-                      <Text
-                        style={[styles.itemUrl, { color: theme.onSurface }]}
-                      >
-                        {item.error}
-                      </Text>
-                    </View>
-                  ))}
+                  {errored.slice(0, 10).map((item, index) =>
+                    item && item.name && item.url ? (
+                      <View key={`errored-${index}`} style={styles.listItem}>
+                        <Text
+                          style={[styles.itemTitle, { color: theme.onSurface }]}
+                          onPress={() => {
+                            Clipboard.setStringAsync(
+                              `${item.url}\n${item.error || 'Unknown error'}`,
+                            );
+                            showToast('Copied to clipboard');
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text
+                          style={[styles.itemUrl, { color: theme.onSurface }]}
+                        >
+                          {item.url}
+                        </Text>
+                        <Text
+                          style={[styles.itemUrl, { color: theme.onSurface }]}
+                        >
+                          {item.error || 'Unknown error'}
+                        </Text>
+                      </View>
+                    ) : null,
+                  )}
                 </ScrollView>
-                {result.errored.length > 10 && (
+                {errored.length > 10 && (
                   <Text style={[styles.moreText, { color: theme.onSurface }]}>
-                    And {result.errored.length - 10} more...
+                    And {errored.length - 10} more...
                   </Text>
                 )}
               </View>

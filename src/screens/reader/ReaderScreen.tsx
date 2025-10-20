@@ -74,7 +74,7 @@ export const ChapterContent = ({
     setBookmarked(chapter.bookmark);
   }, [chapter]);
 
-  const { hidden, loading, error, webViewRef, hideHeader, refetch } =
+  const { hidden, loading, error, webViewRef, hideHeader, reloadChapter } =
     useChapterContext();
 
   const scrollToStart = () =>
@@ -104,7 +104,7 @@ export const ChapterContent = ({
           {
             iconName: 'refresh',
             title: getString('common.retry'),
-            onPress: refetch,
+            onPress: reloadChapter,
           },
           {
             iconName: 'earth',
@@ -138,6 +138,7 @@ export const ChapterContent = ({
             theme={theme}
             bookmarked={bookmarked}
             setBookmarked={setBookmarked}
+            onReload={reloadChapter}
           />
           <ReaderFooter
             readerSheetRef={readerSheetRef}

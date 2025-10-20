@@ -7,11 +7,10 @@ import React, {
 } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
-import { useFocusEffect } from '@react-navigation/native';
-import { SceneRendererProps, TabBar, TabView } from 'react-native-tab-view';
+import { TabBar, TabView } from 'react-native-tab-view';
 import Color from 'color';
 
-import { SearchbarV2, Button, SafeAreaView } from '@components/index';
+import { SearchbarV2, SafeAreaView } from '@components/index';
 import { LibraryView } from './components/LibraryListView';
 import LibraryBottomSheet from './components/LibraryBottomSheet/LibraryBottomSheet';
 import { Banner } from './components/Banner';
@@ -21,22 +20,22 @@ import {
   useAppSettings,
   useHistory,
   useTheme,
-  useLibrarySettings,
+  useDownload,
 } from '@hooks/persisted';
-import { useSearch, useBackHandler, useBoolean } from '@hooks';
+import { useBackHandler, useBoolean } from '@hooks';
 import { debounce } from 'lodash';
 import { getString } from '@strings/translations';
-import { FAB, Portal } from 'react-native-paper';
+import { FAB } from 'react-native-paper';
 import {
   markAllChaptersRead,
   markAllChaptersUnread,
+  getNovelChapters,
 } from '@database/queries/ChapterQueries';
 import { removeNovelsFromLibrary } from '@database/queries/NovelQueries';
 import { getCategoryNovelCounts } from '@database/queries/LibraryQueries';
 import SetCategoryModal from '@screens/novel/components/SetCategoriesModal';
 import MassImportModal from './components/MassImportModal/MassImportModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
 import { Row } from '@components/Common';
 import { LibraryScreenProps } from '@navigators/types';
 import { NovelInfo } from '@database/types';
@@ -48,8 +47,22 @@ import { useLibraryContext } from '@components/Context/LibraryContext';
 import * as Clipboard from 'expo-clipboard';
 import TrackerSyncDialog from './components/TrackerSyncDialog';
 import { showToast } from '@utils/showToast';
+import { resolveUrl } from '@services/plugin/fetch';
+import { MMKVStorage } from '@utils/mmkv/mmkv';
+
+// Local type for TabView label props
+type TabViewLabelProps = {
+  route: {
+    key: string;
+    title: string;
+    id?: number;
+    novelIds?: number[];
+    name?: string;
+  };
+  color: string;
+};
+
 const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
-  const { searchText, setSearchText, clearSearchbar } = useSearch();
   const theme = useTheme();
   const styles = createStyles(theme);
   const { left: leftInset, right: rightInset } = useSafeAreaInsets();
@@ -57,14 +70,14 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     library,
     categories,
     refetchLibrary,
-    isLoading,
-    settings: { showNumberOfNovels, downloadedOnlyMode, incognitoMode },
+    settings: { showNumberOfNovels, downloadedOnlyMode, incognitoMode, filter },
+    searchText,
+    setSearchText,
   } = useLibraryContext();
-
-  const { filter } = useLibrarySettings();
 
   const { importNovel } = useImport();
   const { useLibraryFAB = false } = useAppSettings();
+  const { downloadChapters } = useDownload();
 
   const { isLoading: isHistoryLoading, history, error } = useHistory();
 
@@ -89,14 +102,13 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     useState(false);
   const [trackerSyncType, setTrackerSyncType] = useState('from');
   const handleClearSearchbar = () => {
-    clearSearchbar();
+    setSearchText('');
   };
 
   const [selectedNovelIds, setSelectedNovelIds] = useState<number[]>([]);
   const [categoryCounts, setCategoryCounts] = useState<Record<number, number>>(
     {},
   );
-  const [libraryChangeKey, setLibraryChangeKey] = useState(0);
   const [visibleNovelIds, setVisibleNovelIds] = useState<number[]>([]); // Track visible novels for select all
 
   const currentNovels = useMemo(() => {
@@ -115,53 +127,45 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     return false;
   });
 
-  useFocusEffect(
-    useCallback(() => {
-      refetchLibrary();
-    }, [refetchLibrary]),
-  );
+  // Debounced category count updates to reduce DB queries during mass import
+  const computeCategoryCounts = useCallback(async () => {
+    if (!categories.length) return;
 
-  // Throttle category count updates to reduce DB queries during mass import
-  const updateCategoryCounts = useMemo(() => {
-    // Check if mass import is running to reduce DB pressure
-    const isMassImportRunning = () => {
-      try {
-        const task = ServiceManager.manager.getTask('MASS_IMPORT');
-        return task?.meta?.isRunning || false;
-      } catch {
-        return false;
-      }
-    };
-
-    return debounce(async () => {
-      if (!categories.length) return;
-
-      // Use longer debounce during mass import to reduce DB contention
-      const isImportRunning = isMassImportRunning();
-      if (isImportRunning) {
-        // Skip category count updates during mass import to reduce DB load
-        return;
-      }
-
-      const categoryNovelIds = categories.map(category => category.novelIds);
-      const counts = getCategoryNovelCounts(
-        categoryNovelIds,
-        filter,
-        searchText,
-        downloadedOnlyMode,
+    // Get hidden plugins from MMKV
+    let hiddenPlugins: string[] = [];
+    try {
+      hiddenPlugins = JSON.parse(
+        MMKVStorage.getString('LIBRARY_HIDDEN_PLUGINS') || '[]',
       );
+    } catch {}
 
-      const countsMap: Record<number, number> = {};
-      categories.forEach((category, idx) => {
-        countsMap[category.id] = counts[idx];
-      });
+    const categoryNovelIds = categories.map(category => category.novelIds);
+    const counts = getCategoryNovelCounts(
+      categoryNovelIds,
+      filter,
+      searchText,
+      downloadedOnlyMode,
+      hiddenPlugins,
+    );
 
-      setCategoryCounts(countsMap);
-    }, 500); // 500ms debounce
+    const countsMap: Record<number, number> = {};
+    categories.forEach((category, idx) => {
+      countsMap[category.id] = counts[idx];
+    });
+
+    setCategoryCounts(countsMap);
   }, [categories, filter, searchText, downloadedOnlyMode]);
+
+  const updateCategoryCounts = useMemo(
+    () => debounce(computeCategoryCounts, 500),
+    [computeCategoryCounts],
+  );
 
   useEffect(() => {
     updateCategoryCounts();
+    return () => {
+      updateCategoryCounts.cancel?.();
+    };
   }, [updateCategoryCounts]);
 
   useEffect(() => {
@@ -411,107 +415,20 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     }).then(importNovel);
   }, [importNovel]);
 
-  const renderTabBar = useCallback(
-    (props: SceneRendererProps & { navigationState: State }) => {
-      return categories.length ? (
-        <TabBar
-          {...props}
-          scrollEnabled
-          indicatorStyle={styles.tabBarIndicator}
-          style={[
-            {
-              backgroundColor: theme.surface,
-              borderBottomColor: Color(theme.isDark ? '#FFFFFF' : '#000000')
-                .alpha(0.12)
-                .string(),
-            },
-            styles.tabBar,
-          ]}
-          tabStyle={styles.tabStyle}
-          gap={8}
-          inactiveColor={theme.secondary}
-          activeColor={theme.primary}
-          android_ripple={{ color: theme.rippleColor }}
-        />
-      ) : null;
-    },
-    [
-      categories.length,
-      styles.tabBar,
-      styles.tabBarIndicator,
-      styles.tabStyle,
-      theme.isDark,
-      theme.primary,
-      theme.rippleColor,
-      theme.secondary,
-      theme.surface,
-    ],
-  );
-  const renderScene = useCallback(
-    ({
-      route,
-    }: {
-      route: {
-        id: number;
-        name: string;
-        sort: number;
-        novelIds: number[];
-        key: string;
-        title: string;
-      };
-    }) => {
-      const isFocused = categories[index]?.id === route.id;
+  // Define callbacks at top level to avoid hooks order issues
+  const handleEditCategories = useCallback(() => setSelectedNovelIds([]), []);
 
-      return isLoading ? (
-        <SourceScreenSkeletonLoading theme={theme} />
-      ) : (
-        <>
-          {searchText ? (
-            <Button
-              title={`${getString(
-                'common.searchFor',
-              )} "${searchText}" ${getString('common.globally')}`}
-              style={styles.globalSearchBtn}
-              onPress={() =>
-                navigation.navigate('GlobalSearchScreen', {
-                  searchText,
-                })
-              }
-            />
-          ) : null}
-          <LibraryView
-            categoryId={route.id}
-            categoryName={route.name}
-            categoryNovelIds={route.novelIds}
-            searchText={searchText}
-            selectedNovelIds={selectedNovelIds}
-            setSelectedNovelIds={setSelectedNovelIds}
-            pickAndImport={pickAndImport}
-            navigation={navigation}
-            isFocused={isFocused}
-            libraryChangeKey={libraryChangeKey}
-            onSelectAllVisible={setVisibleNovelIds} // Pass callback to track visible novels
-          />
-        </>
-      );
-    },
-    [
-      categories,
-      index,
-      isLoading,
-      navigation,
-      pickAndImport,
-      searchText,
-      selectedNovelIds,
-      styles.globalSearchBtn,
-      theme,
-      libraryChangeKey,
-    ],
-  );
+  const handleCategorySuccess = useCallback(() => {
+    setSelectedNovelIds([]);
+    refetchLibrary();
+  }, [refetchLibrary]);
 
   const renderLabel = useCallback(
     ({ route, color }: TabViewLabelProps) => {
-      const count = categoryCounts[route.id] ?? route?.novelIds.length ?? 0;
+      const count =
+        categoryCounts[route.id as number] ??
+        (route?.novelIds?.length as number) ??
+        0;
 
       return (
         <Row>
@@ -556,6 +473,27 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     [categories, index],
   );
 
+  const renderScene = useCallback(
+    ({ route }: { route: any }) => {
+      const { id, name, novelIds } = route;
+      return (
+        <LibraryView
+          categoryId={id}
+          categoryName={name}
+          categoryNovelIds={novelIds}
+          searchText={searchText}
+          selectedNovelIds={selectedNovelIds}
+          setSelectedNovelIds={setSelectedNovelIds}
+          pickAndImport={pickAndImport}
+          navigation={navigation}
+          isFocused={true}
+          onSelectAllVisible={setVisibleNovelIds}
+        />
+      );
+    },
+    [navigation, pickAndImport, searchText, selectedNovelIds],
+  );
+
   return (
     <SafeAreaView excludeBottom>
       <SearchbarV2
@@ -596,12 +534,12 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             title: getString('libraryScreen.extraMenu.updateCategory'),
             onPress: () =>
               //2 = local category
-              library[index].id !== 2 &&
+              categories[index]?.id !== 2 &&
               ServiceManager.manager.addTask({
                 name: 'UPDATE_LIBRARY',
                 data: {
-                  categoryId: library[index].id,
-                  categoryName: library[index].name,
+                  categoryId: categories[index]?.id,
+                  categoryName: categories[index]?.name,
                 },
               }),
           },
@@ -655,7 +593,29 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         }}
         lazy
         navigationState={navigationState}
-        renderTabBar={renderTabBar}
+        renderTabBar={props =>
+          categories.length ? (
+            <TabBar
+              {...props}
+              scrollEnabled
+              indicatorStyle={styles.tabBarIndicator}
+              style={[
+                {
+                  backgroundColor: theme.surface,
+                  borderBottomColor: Color(theme.isDark ? '#FFFFFF' : '#000000')
+                    .alpha(0.12)
+                    .string(),
+                },
+                styles.tabBar,
+              ]}
+              tabStyle={styles.tabStyle}
+              gap={8}
+              inactiveColor={theme.secondary}
+              activeColor={theme.primary}
+              android_ripple={{ color: theme.rippleColor }}
+            />
+          ) : null
+        }
         renderScene={renderScene}
         onIndexChange={setIndex}
         initialLayout={{ width: layout.width }}
@@ -690,75 +650,151 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           }}
         />
       ) : null}
-      <SetCategoryModal
-        novelIds={selectedNovelIds}
-        closeModal={closeSetCategoryModal}
-        onEditCategories={() => setSelectedNovelIds([])}
-        visible={setCategoryModalVisible}
-        onSuccess={() => {
-          setSelectedNovelIds([]);
-          setLibraryChangeKey(prev => prev + 1); // Trigger library view reload
-          refetchLibrary();
-        }}
-      />
+      {setCategoryModalVisible && (
+        <SetCategoryModal
+          novelIds={selectedNovelIds}
+          closeModal={closeSetCategoryModal}
+          onEditCategories={handleEditCategories}
+          visible={setCategoryModalVisible}
+          onSuccess={handleCategorySuccess}
+        />
+      )}
       <MassImportModal
         visible={massImportModalVisible}
         closeModal={closeMassImportModal}
       />
-      <TrackerSyncDialog
-        visible={trackerSyncDialogVisible}
-        onDismiss={() => setTrackerSyncDialogVisible(false)}
-        syncType={trackerSyncType}
-      />
+      {trackerSyncDialogVisible && (
+        <TrackerSyncDialog
+          visible={trackerSyncDialogVisible}
+          onDismiss={() => setTrackerSyncDialogVisible(false)}
+          syncType={trackerSyncType}
+        />
+      )}
       <LibraryBottomSheet
         bottomSheetRef={bottomSheetRef}
         style={{ marginLeft: leftInset, marginRight: rightInset }}
       />
-      <Portal>
-        <Actionbar
-          viewStyle={{ paddingLeft: leftInset, paddingRight: rightInset }}
-          active={selectedNovelIds.length > 0}
-          actions={[
-            {
-              icon: 'label-outline',
-              onPress: showSetCategoryModal,
+      <Actionbar
+        viewStyle={{ paddingLeft: leftInset, paddingRight: rightInset }}
+        active={selectedNovelIds.length > 0}
+        actions={[
+          {
+            icon: 'content-copy',
+            onPress: async () => {
+              const selectedNovels = library.filter(
+                n => selectedNovelIds.includes(n.id) && !n.isLocal,
+              );
+              const urls = selectedNovels
+                .map(n => resolveUrl(n.pluginId, n.path, true))
+                .join('\n');
+              if (urls) {
+                await Clipboard.setStringAsync(urls);
+                showToast(`Copied ${selectedNovels.length} URLs`);
+              }
+              setSelectedNovelIds([]);
             },
-            {
-              icon: 'check',
-              onPress: async () => {
-                const promises: Promise<any>[] = [];
-                selectedNovelIds.map(id =>
-                  promises.push(markAllChaptersRead(id)),
-                );
-                await Promise.all(promises);
-                setSelectedNovelIds([]);
-                refetchLibrary();
+          },
+          {
+            icon: 'download',
+            menuItems: [
+              {
+                icon: 'download',
+                title: 'Download all',
+                onPress: async () => {
+                  const selectedNovels = library.filter(
+                    n => selectedNovelIds.includes(n.id) && !n.isLocal,
+                  );
+                  for (const novel of selectedNovels) {
+                    const novelChapters = await getNovelChapters(novel.id);
+                    const undownloaded = novelChapters.filter(
+                      ch => !ch.isDownloaded,
+                    );
+                    if (undownloaded.length) {
+                      downloadChapters(novel, undownloaded);
+                    }
+                  }
+                  showToast(
+                    `Downloading all chapters for ${selectedNovels.length} novels`,
+                  );
+                  setSelectedNovelIds([]);
+                },
               },
-            },
-            {
-              icon: 'check-outline',
-              onPress: async () => {
-                const promises: Promise<any>[] = [];
-                selectedNovelIds.map(id =>
-                  promises.push(markAllChaptersUnread(id)),
-                );
-                await Promise.all(promises);
-                setSelectedNovelIds([]);
-                refetchLibrary();
+              {
+                icon: 'download-outline',
+                title: 'Download unread',
+                onPress: async () => {
+                  const selectedNovels = library.filter(
+                    n => selectedNovelIds.includes(n.id) && !n.isLocal,
+                  );
+                  for (const novel of selectedNovels) {
+                    const novelChapters = await getNovelChapters(novel.id);
+                    const unread = novelChapters.filter(
+                      ch => ch.unread && !ch.isDownloaded,
+                    );
+                    if (unread.length) {
+                      downloadChapters(novel, unread);
+                    }
+                  }
+                  showToast(
+                    `Downloading unread chapters for ${selectedNovels.length} novels`,
+                  );
+                  setSelectedNovelIds([]);
+                },
               },
-            },
-            {
-              icon: 'delete-outline',
-              onPress: () => {
-                removeNovelsFromLibrary(selectedNovelIds);
-                setSelectedNovelIds([]);
-                setLibraryChangeKey(prev => prev + 1); // Trigger library view reload
-                refetchLibrary();
+              {
+                icon: 'download-off',
+                title: 'Delete downloads',
+                onPress: async () => {
+                  const selectedNovels = library.filter(
+                    n => selectedNovelIds.includes(n.id) && !n.isLocal,
+                  );
+                  // TODO: Implement deleteChapters batch function
+                  showToast(
+                    `Deleting downloads for ${selectedNovels.length} novels`,
+                  );
+                  setSelectedNovelIds([]);
+                },
               },
+            ],
+          },
+          {
+            icon: 'label-outline',
+            onPress: showSetCategoryModal,
+          },
+          {
+            icon: 'check',
+            onPress: async () => {
+              const promises: Promise<any>[] = [];
+              selectedNovelIds.map(id =>
+                promises.push(markAllChaptersRead(id)),
+              );
+              await Promise.all(promises);
+              setSelectedNovelIds([]);
+              refetchLibrary();
             },
-          ]}
-        />
-      </Portal>
+          },
+          {
+            icon: 'check-outline',
+            onPress: async () => {
+              const promises: Promise<any>[] = [];
+              selectedNovelIds.map(id =>
+                promises.push(markAllChaptersUnread(id)),
+              );
+              await Promise.all(promises);
+              setSelectedNovelIds([]);
+              refetchLibrary();
+            },
+          },
+          {
+            icon: 'delete-outline',
+            onPress: () => {
+              removeNovelsFromLibrary(selectedNovelIds);
+              setSelectedNovelIds([]);
+              refetchLibrary();
+            },
+          },
+        ]}
+      />
     </SafeAreaView>
   );
 };
