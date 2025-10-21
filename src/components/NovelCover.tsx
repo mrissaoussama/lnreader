@@ -63,7 +63,8 @@ interface INovelCover<TNovel> {
   addSkeletonLoading?: boolean;
   inActivity?: boolean;
   onLongPress: (item: TNovel) => void;
-  selectedNovelIds: number[];
+  // Removed selectedNovelIds array to avoid triggering rerenders; pass a lightweight flag instead
+  selectionMode?: boolean;
   globalSearch?: boolean;
   match?: MatchType | false;
 }
@@ -86,7 +87,7 @@ function NovelCover<
   inActivity,
   onLongPress,
   globalSearch,
-  selectedNovelIds,
+  selectionMode = false,
   match,
 }: INovelCover<TNovel>) {
   const {
@@ -156,11 +157,7 @@ function NovelCover<
       <Pressable
         android_ripple={{ color: theme.rippleColor }}
         style={styles.opac}
-        onPress={
-          selectedNovelIds && selectedNovelIds.length > 0
-            ? selectNovel
-            : onPress
-        }
+        onPress={selectionMode ? selectNovel : onPress}
         onLongPress={selectNovel}
       >
         <View style={styles.badgeContainer}>
@@ -251,9 +248,7 @@ function NovelCover<
         match ? <LibraryMatchBadge matchType={match} theme={theme} /> : null
       }
       theme={theme}
-      onPress={
-        selectedNovelIds && selectedNovelIds.length > 0 ? selectNovel : onPress
-      }
+      onPress={selectionMode ? selectNovel : onPress}
       onLongPress={selectNovel}
       isSelected={isSelected}
     />

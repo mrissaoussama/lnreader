@@ -79,8 +79,22 @@ class NativeFile(context: ReactApplicationContext) :
         fw.close()
     }
 
+    override fun writeFileFromBase64(path: String, base64Content: String) {
+        val bytes = android.util.Base64.decode(base64Content, android.util.Base64.NO_WRAP)
+        val file = File(path)
+        val fos = FileOutputStream(file)
+        fos.write(bytes)
+        fos.close()
+    }
+
     override fun readFile(path: String): String {
         return File(path).bufferedReader().readText()
+    }
+
+    override fun readFileAsBase64(path: String): String {
+        val file = File(path)
+        val bytes = file.readBytes()
+        return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
     override fun copyFile(filepath: String, destPath: String) {

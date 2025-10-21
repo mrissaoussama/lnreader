@@ -15,7 +15,6 @@ import com.facebook.soloader.SoLoader
 import com.rajarsheechatterjee.NativeFile.NativePackage
 import com.rajarsheechatterjee.NativeVolumeButtonListener.NativeVolumeButtonListenerPackage
 import com.rajarsheechatterjee.NativeZipArchive.NativeZipArchivePackage
-import com.rajarsheechatterjee.NativeDownloader.NativeDownloaderPackage
 import expo.modules.ApplicationLifecycleDispatcher
 
 class MainApplication : Application(), ReactApplication {
@@ -26,7 +25,6 @@ class MainApplication : Application(), ReactApplication {
                     add(NativePackage())
                     add(NativeVolumeButtonListenerPackage())
                     add(NativeZipArchivePackage())
-                    add(NativeDownloaderPackage())
                 }
 
             override fun getJSMainModuleName(): String = "index"
