@@ -7,11 +7,14 @@ import {
 } from '../types/browseFilters';
 
 export const normalizeText = (
-  text: string,
+  text: unknown,
   caseSensitive: boolean = false,
 ): string => {
-  if (!text) return '';
-  const normalized = caseSensitive ? text : text.toLowerCase();
+  if (text == null || text === undefined) return '';
+  const str = typeof text === 'string' ? text : String(text);
+  if (!str) return '';
+
+  const normalized = caseSensitive ? str : str.toLowerCase();
   return normalized
     .replace(/\s+/g, ' ')
     .trim()
@@ -51,7 +54,7 @@ export const testFilter = (
   filter: BrowseFilter,
   searchableTexts: string[],
 ): boolean => {
-  if (!filter.enabled || !filter.pattern.trim()) return false;
+  if (!filter.enabled || !String(filter.pattern ?? '').trim()) return false;
 
   const normalizedPattern = normalizeText(filter.pattern, filter.caseSensitive);
 

@@ -31,6 +31,8 @@ import { overlay } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
 import { StringMap } from '@strings/types';
+import AutoScrollSlider from './AutoScrollSlider';
+import ProgressBarPositionSelector from './ProgressBarPositionSelector';
 
 type TabViewLabelProps = {
   route: {
@@ -93,6 +95,7 @@ const GeneralTab: React.FC = React.memo(() => {
       { key: 'bionicReading', label: 'bionicReading' },
       { key: 'tapToScroll', label: 'tapToScroll' },
       { key: 'keepScreenOn', label: 'keepScreenOn' },
+      { key: 'useServiceForeground', label: 'useServiceForeground' },
     ],
     [],
   );
@@ -106,15 +109,32 @@ const GeneralTab: React.FC = React.memo(() => {
         label: string;
       };
     }) => (
-      <ReaderSheetPreferenceItem
-        key={item.key}
-        label={getString(
-          `readerScreen.bottomSheet.${item.label}` as keyof StringMap,
-        )}
-        onPress={() => toggleSetting(item.key as keyof typeof settings)} // @ts-ignore
-        value={settings[item.key]}
-        theme={theme}
-      />
+      <View>
+        <ReaderSheetPreferenceItem
+          key={item.key}
+          label={getString(
+            `readerScreen.bottomSheet.${item.label}` as keyof StringMap,
+          )}
+          onPress={() => toggleSetting(item.key as keyof typeof settings)} // @ts-ignore
+          value={settings[item.key]}
+          theme={theme}
+        />
+        {item.key === 'autoScroll' && settings.autoScroll ? (
+          <>
+            <AutoScrollSlider />
+            <ReaderSheetPreferenceItem
+              label={getString('readerScreen.bottomSheet.pauseAutoscrollOnTap')}
+              onPress={() => toggleSetting('pauseAutoscrollOnTap')}
+              value={settings.pauseAutoscrollOnTap}
+              theme={theme}
+            />
+          </>
+        ) : null}
+        {item.key === 'showScrollPercentage' &&
+        settings.showScrollPercentage ? (
+          <ProgressBarPositionSelector />
+        ) : null}
+      </View>
     ),
     [settings, theme, toggleSetting],
   );

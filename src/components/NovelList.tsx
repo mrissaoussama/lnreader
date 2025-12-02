@@ -21,11 +21,23 @@ type listDataItem =
 interface NovelListProps extends FlatListProps<NovelInfo | NovelItem> {
   inSource?: boolean;
   data: Array<listDataItem>;
+  displayMode?: DisplayModes;
+  novelsPerRow?: number;
 }
 
 const NovelList: React.FC<NovelListProps> = props => {
-  const { displayMode = DisplayModes.Comfortable, novelsPerRow = 3 } =
-    useLibrarySettings();
+  const librarySettings = useLibrarySettings();
+
+  const displayMode =
+    props.displayMode !== undefined
+      ? props.displayMode
+      : librarySettings.displayMode ?? DisplayModes.Comfortable;
+
+  const novelsPerRow =
+    props.novelsPerRow !== undefined
+      ? props.novelsPerRow
+      : librarySettings.novelsPerRow ?? 3;
+
   const orientation = useDeviceOrientation();
 
   const isListView = displayMode === DisplayModes.List;

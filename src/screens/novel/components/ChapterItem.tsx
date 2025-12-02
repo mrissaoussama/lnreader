@@ -7,6 +7,7 @@ import {
   DownloadButton,
 } from './Chapter/ChapterDownloadButtons';
 import { ThemeColors } from '@theme/types';
+import { DisplayModes } from '@hooks/persisted/useNovel';
 import { ChapterInfo } from '@database/types';
 import MaterialCommunityIcons from '@react-native-vector-icons/material-design-icons';
 import { getString } from '@strings/translations';
@@ -16,7 +17,7 @@ interface ChapterItemProps {
   isBookmarked?: boolean;
   chapter: ChapterInfo;
   theme: ThemeColors;
-  showChapterTitles: boolean;
+  displayMode?: DisplayModes;
   isSelected?: boolean;
   downloadChapter: () => void;
   deleteChapter: () => void;
@@ -35,7 +36,7 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
   isBookmarked,
   chapter,
   theme,
-  showChapterTitles,
+  displayMode,
   downloadChapter,
   deleteChapter,
   isSelected,
@@ -103,25 +104,58 @@ const ChapterItem: React.FC<ChapterItemProps> = ({
                 />
               ) : null}
 
-              <Text
-                style={{
-                  fontSize: isUpdateCard ? 12 : 14,
-                  color: !unread
-                    ? theme.outline
-                    : bookmark
-                    ? theme.primary
-                    : theme.onSurface,
-                  flex: 1,
-                }}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {showChapterTitles
-                  ? name
-                  : getString('novelScreen.chapterChapnum', {
-                      num: chapterNumber,
-                    })}
-              </Text>
+              <View style={{ flex: 1 }}>
+                {displayMode === DisplayModes.Both ? (
+                  <>
+                    <Text
+                      style={{
+                        fontSize: isUpdateCard ? 12 : 14,
+                        color: !unread
+                          ? theme.outline
+                          : bookmark
+                          ? theme.primary
+                          : theme.onSurface,
+                      }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {name}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: theme.onSurfaceVariant,
+                      }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {getString('novelScreen.chapterChapnum', {
+                        num: chapterNumber,
+                      })}
+                    </Text>
+                  </>
+                ) : (
+                  <Text
+                    style={{
+                      fontSize: isUpdateCard ? 12 : 14,
+                      color: !unread
+                        ? theme.outline
+                        : bookmark
+                        ? theme.primary
+                        : theme.onSurface,
+                    }}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {displayMode === DisplayModes.Title ||
+                    displayMode === undefined
+                      ? name
+                      : getString('novelScreen.chapterChapnum', {
+                          num: chapterNumber,
+                        })}
+                  </Text>
+                )}
+              </View>
             </View>
             <View
               style={{

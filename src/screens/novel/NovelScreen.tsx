@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Portal, Appbar, Snackbar } from 'react-native-paper';
-import { useDownload, useTheme, useBrowseSettings } from '@hooks/persisted';
+import { useDownload, useTheme, useAppSettings } from '@hooks/persisted';
 import JumpToChapterModal from './components/JumpToChapterModal';
 import { Actionbar } from '../../components/Actionbar/Actionbar';
 import EditInfoModal from './components/EditInfoModal';
@@ -66,11 +66,14 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     markPreviousChaptersUnread,
     refreshChapters,
     deleteChapters,
+    deleteChaptersByCriteria,
+    deleteAllDownloadedChapters,
+    deleteCover,
   } = useNovelContext();
 
   const theme = useTheme();
   const { downloadChapters } = useDownload();
-  const { novelMatching } = useBrowseSettings();
+  const { novelMatching } = useAppSettings();
 
   const [selected, setSelected] = useState<ChapterInfo[]>([]);
   const [editInfoModal, showEditInfoModal] = useState(false);
@@ -185,51 +188,73 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
           style: 'cancel',
         },
         {
-          text: 'Clear',
+          text: getString('common.clear'),
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete all chapter entries and their downloads for this novel
+              const {
+                getNovelChapters,
+                deleteDownloadedFiles,
+                insertChapters,
+              } = await import('@database/queries/ChapterQueries');
+              const { fetchPage } = await import('@services/plugin/fetch');
               const { db } = await import('@database/db');
-              await db.withTransactionAsync(async () => {
-                // Delete all downloaded chapter files
-                const allChapters = await getNovelChapters(novel.id);
-                const downloadedChapters = allChapters.filter(
-                  ch => ch.isDownloaded,
-                );
-                if (downloadedChapters.length > 0) {
-                  await deleteChapters(downloadedChapters);
-                }
 
+              // Get all chapters before deletion
+              const allChapters = await getNovelChapters(novel.id);
+              const downloadedChapters = allChapters.filter(
+                ch => ch.isDownloaded,
+              );
+
+              // Delete downloaded files first (outside transaction)
+              if (downloadedChapters.length > 0) {
+                const BATCH_SIZE = 50;
+                for (
+                  let i = 0;
+                  i < downloadedChapters.length;
+                  i += BATCH_SIZE
+                ) {
+                  const batch = downloadedChapters.slice(i, i + BATCH_SIZE);
+                  await Promise.all(
+                    batch.map(ch =>
+                      deleteDownloadedFiles(novel.pluginId, novel.id, ch.id),
+                    ),
+                  );
+                }
+              }
+
+              // Delete chapter entries and re-fetch in a single transaction
+              await db.withTransactionAsync(async () => {
                 // Delete all chapter entries from database
                 await db.runAsync('DELETE FROM Chapter WHERE novelId = ?', [
                   novel.id,
                 ]);
+
+                // Try to fetch fresh chapters from source
+                try {
+                  const page = pages[pageIndex];
+                  if (page) {
+                    const sourcePage = await fetchPage(
+                      novel.pluginId,
+                      novel.path,
+                      page,
+                    );
+                    const sourceChapters = sourcePage.chapters.map(ch => ({
+                      ...ch,
+                      page,
+                    }));
+                    await insertChapters(novel.id, sourceChapters, {
+                      transactional: false,
+                    });
+                  }
+                } catch (fetchError) {
+                  // If fetch fails, just clear without re-fetching
+                }
               });
-
-              // Call the same function as pull-to-refresh (onRefreshPage)
-              const page = pages[pageIndex];
-              if (page) {
-                const { fetchPage } = await import('@services/plugin/fetch');
-                const { insertChapters } = await import(
-                  '@database/queries/ChapterQueries'
-                );
-
-                const sourcePage = await fetchPage(
-                  novel.pluginId,
-                  novel.path,
-                  page,
-                );
-                const sourceChapters = sourcePage.chapters.map(ch => ({
-                  ...ch,
-                  page,
-                }));
-                await insertChapters(novel.id, sourceChapters);
-              }
 
               // Refresh the chapter list
               await refreshChapters();
-              showToast('Chapters cleared and refreshed successfully');
+              showToast(getString('common.cleared'));
             } catch (error: any) {
               showToast(`Failed to clear chapters: ${error.message}`);
             }
@@ -287,10 +312,29 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
     }
     if (!novel?.isLocal && selected.some(obj => obj.isDownloaded)) {
       list.push({
-        icon: 'trash-can-outline',
+        icon: 'notification-clear-all',
         onPress: () => {
-          deleteChapters(selected.filter(chapter => chapter.isDownloaded));
-          setSelected([]);
+          const { Alert } = require('react-native');
+          Alert.alert(
+            getString('common.clear'),
+            getString('novelScreen.deleteMessage'),
+            [
+              {
+                text: getString('common.cancel'),
+                style: 'cancel',
+              },
+              {
+                text: getString('common.clear'),
+                style: 'destructive',
+                onPress: () => {
+                  deleteChapters(
+                    selected.filter(chapter => chapter.isDownloaded),
+                  );
+                  setSelected([]);
+                },
+              },
+            ],
+          );
         },
       });
     }
@@ -307,8 +351,24 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
       list.push({
         icon: 'check',
         onPress: () => {
-          markChaptersRead(selected);
-          setSelected([]);
+          const { Alert } = require('react-native');
+          Alert.alert(
+            'Mark as read',
+            `Mark ${selected.length} chapter(s) as read?`,
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+              },
+              {
+                text: 'Mark read',
+                onPress: () => {
+                  markChaptersRead(selected);
+                  setSelected([]);
+                },
+              },
+            ],
+          );
         },
       });
     }
@@ -319,13 +379,55 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
       list.push({
         icon: 'check-outline',
         onPress: () => {
-          markChaptersUnread(selected);
-          updateChapterProgressByIds(chapterIds, 0);
-          setSelected([]);
-          refreshChapters();
+          const { Alert } = require('react-native');
+          Alert.alert(
+            'Mark as unread',
+            `Mark ${selected.length} chapter(s) as unread?`,
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+              },
+              {
+                text: 'Mark unread',
+                onPress: () => {
+                  markChaptersUnread(selected);
+                  updateChapterProgressByIds(chapterIds, 0);
+                  setSelected([]);
+                  refreshChapters();
+                },
+              },
+            ],
+          );
         },
       });
     }
+
+    // Add clear button for multi-select (delete chapter entries from database)
+    list.push({
+      icon: 'delete-outline',
+      onPress: () => {
+        const { Alert } = require('react-native');
+        Alert.alert(
+          'Delete chapters',
+          `Delete ${selected.length} chapter entries from database?`,
+          [
+            {
+              text: getString('common.cancel'),
+              style: 'cancel',
+            },
+            {
+              text: getString('common.delete'),
+              style: 'destructive',
+              onPress: () => {
+                deleteChapters(selected);
+                setSelected([]);
+              },
+            },
+          ],
+        );
+      },
+    });
 
     if (selected.length === 1) {
       if (selected[0].unread) {
@@ -406,6 +508,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 novel={novel}
                 chapters={chapters}
                 deleteChapters={deleteChs}
+                deleteChaptersByCriteria={deleteChaptersByCriteria}
                 downloadChapters={downloadChs}
                 showEditInfoModal={showEditInfoModal}
                 setCustomNovelCover={setCustomNovelCover}
@@ -425,6 +528,8 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                 headerOpacity={headerOpacity}
                 openDeleteRangeModal={() => setDeleteRangeModal(true)}
                 clearAndRefreshChapters={clearAndRefreshChapters}
+                deleteCover={deleteCover}
+                deleteAllDownloadedChapters={deleteAllDownloadedChapters}
               />
             ) : (
               <Animated.View
@@ -466,6 +571,7 @@ const Novel = ({ route, navigation }: NovelScreenProps) => {
                     ? getNextChapterBatch
                     : noop
                 }
+                clearAndRefreshChapters={clearAndRefreshChapters}
               />
             </Suspense>
           </SafeAreaView>

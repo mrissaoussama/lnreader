@@ -26,6 +26,7 @@ import { ROOT_STORAGE } from '@utils/Storages';
 import { BackupNovel } from '@database/types';
 import { showToast } from '@utils/showToast';
 import NativeFile from '@specs/NativeFile';
+import { sleep } from '@utils/sleep';
 
 const APP_STORAGE_URI = 'file://' + ROOT_STORAGE;
 
@@ -264,6 +265,7 @@ const restoreCategories = async (
     const totalCategories = categoriesData.length;
 
     for (const categoryData of categoriesData) {
+      await sleep(10);
       try {
         const currentNovelIds: number[] = [];
 
@@ -334,6 +336,7 @@ const restoreNovelsAdvanced = async (
   );
 
   for (const novelFile of novelFiles) {
+    await sleep(10);
     if (!novelFile.isDirectory && novelFile.name.endsWith('.json')) {
       try {
         const backupNovelData = JSON.parse(
@@ -354,59 +357,81 @@ const restoreNovelsAdvanced = async (
         const existingNovel = currentNovelMap.get(novelKey);
 
         if (!existingNovel) {
-          await restoreNovelAndChaptersQuery(backupNovelData);
-          if (result) {
-            result.added?.push({
-              name: backupNovelData.name,
-              reason: 'New novel added from backup',
-            });
+          // New novel - restore it
+          try {
+            await restoreNovelAndChaptersQuery(backupNovelData);
+            if (result) {
+              result.added?.push({
+                name: backupNovelData.name,
+                reason: 'New novel added from backup',
+              });
+            }
+          } catch (error: any) {
+            if (result) {
+              result.errored?.push({
+                name: backupNovelData.name,
+                reason: `Failed to add novel: ${error.message}`,
+              });
+            }
           }
         } else {
-          const currentChapters = await getNovelChapters(existingNovel.id);
-          const backupChapterCount = backupNovelData.chapters?.length || 0;
-          const currentChapterCount = currentChapters.length;
-          let shouldUpdateNovel = false;
-          let mergeReason = '';
+          // Existing novel - merge or skip
+          try {
+            const currentChapters = await getNovelChapters(existingNovel.id);
+            const backupChapterCount = backupNovelData.chapters?.length || 0;
+            const currentChapterCount = currentChapters.length;
+            let shouldUpdateNovel = false;
+            let mergeReason = '';
 
-          if (backupChapterCount > currentChapterCount) {
-            shouldUpdateNovel = true;
-            mergeReason = `Backup has more chapters (${backupChapterCount} vs ${currentChapterCount})`;
-          } else if (
-            backupChapterCount === currentChapterCount &&
-            backupNovelData.chapters
-          ) {
-            const backupReadCount = backupNovelData.chapters.filter(
-              ch => !ch.unread,
-            ).length;
-            const currentReadCount = currentChapters.filter(
-              ch => !ch.unread,
-            ).length;
-            if (backupReadCount > currentReadCount) {
+            if (backupChapterCount > currentChapterCount) {
               shouldUpdateNovel = true;
-              mergeReason = `Backup has more chapters read (${backupReadCount} vs ${currentReadCount})`;
+              mergeReason = `Backup has more chapters (${backupChapterCount} vs ${currentChapterCount})`;
+            } else if (
+              backupChapterCount === currentChapterCount &&
+              backupNovelData.chapters
+            ) {
+              const backupReadCount = backupNovelData.chapters.filter(
+                ch => !ch.unread,
+              ).length;
+              const currentReadCount = currentChapters.filter(
+                ch => !ch.unread,
+              ).length;
+              if (backupReadCount > currentReadCount) {
+                shouldUpdateNovel = true;
+                mergeReason = `Backup has more chapters read (${backupReadCount} vs ${currentReadCount})`;
+              } else {
+                mergeReason = 'Kept existing novel (equal or less progress)';
+              }
             } else {
-              mergeReason = 'Kept existing novel (equal or less progress)';
+              mergeReason = 'Kept existing novel (more chapters locally)';
             }
-          } else {
-            mergeReason = 'Kept existing novel (more chapters locally)';
-          }
 
-          await mergeNovelAndChaptersQuery(
-            backupNovelData,
-            existingNovel.id,
-            shouldUpdateNovel,
-          );
+            await mergeNovelAndChaptersQuery(
+              backupNovelData,
+              existingNovel.id,
+              shouldUpdateNovel,
+            );
 
-          if (result) {
-            if (shouldUpdateNovel) {
-              result.overwritten?.push({
+            if (result) {
+              if (shouldUpdateNovel) {
+                result.overwritten?.push({
+                  name: backupNovelData.name,
+                  reason: mergeReason,
+                  novelId: existingNovel.id,
+                });
+              } else {
+                result.skipped?.push({
+                  name: backupNovelData.name,
+                  reason: mergeReason,
+                  novelId: existingNovel.id,
+                });
+              }
+            }
+          } catch (error: any) {
+            if (result) {
+              result.errored?.push({
                 name: backupNovelData.name,
-                reason: mergeReason,
-              });
-            } else {
-              result.skipped?.push({
-                name: backupNovelData.name,
-                reason: mergeReason,
+                reason: `Failed to merge novel: ${error.message}`,
               });
             }
           }

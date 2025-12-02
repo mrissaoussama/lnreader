@@ -30,6 +30,7 @@ interface NovelThumbnailProps {
   theme: ThemeColors;
   setCustomNovelCover: () => Promise<void>;
   saveNovelCover: () => Promise<void>;
+  deleteCover: () => void;
 }
 
 interface NovelTitleProps {
@@ -53,7 +54,7 @@ const CoverImage = ({
     return <View>{children}</View>;
   } else {
     return (
-      <ImageBackground source={source} style={styles.coverImage}>
+      <ImageBackground source={source} style={styles.coverImage} blurRadius={5}>
         <View
           style={[
             { backgroundColor: color(theme.background).alpha(0.7).string() },
@@ -82,6 +83,7 @@ const NovelThumbnail = ({
   theme,
   setCustomNovelCover,
   saveNovelCover,
+  deleteCover,
 }: NovelThumbnailProps) => {
   const [expanded, setExpanded] = useState(false);
   const { top, right } = useSafeAreaInsets();
@@ -114,6 +116,16 @@ const NovelThumbnail = ({
             ]}
             iconColor={theme.onBackground}
             onPress={setCustomNovelCover}
+          />
+          <IconButton
+            icon="trash-can-outline"
+            style={[
+              styles.absoluteIcon,
+              styles.zIndex,
+              { top: top + 6, right: right + 114 },
+            ]}
+            iconColor={theme.onBackground}
+            onPress={deleteCover}
           />
           <Pressable
             style={[styles.expandedOverlay]}
@@ -241,7 +253,7 @@ const NovelGenres = ({
   theme: ThemeColors;
   genres: string;
 }) => {
-  const data = genres.split(/,\s*/);
+  const data = genres?.split(/,\s*/);
 
   return (
     <FlatList

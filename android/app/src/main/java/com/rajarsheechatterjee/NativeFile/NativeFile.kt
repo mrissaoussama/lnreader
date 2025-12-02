@@ -74,17 +74,30 @@ class NativeFile(context: ReactApplicationContext) :
     }
 
     override fun writeFile(path: String, content: String) {
-        val fw = FileWriter(path)
-        fw.write(content)
-        fw.close()
+        try {
+            val file = File(path)
+            file.parentFile?.mkdirs() // Ensure parent directory exists
+            val fw = FileWriter(file)
+            fw.write(content)
+            fw.flush()
+            fw.close()
+        } catch (e: Exception) {
+            throw Exception("Failed to write file at '$path': ${e.message}")
+        }
     }
 
     override fun writeFileFromBase64(path: String, base64Content: String) {
-        val bytes = android.util.Base64.decode(base64Content, android.util.Base64.NO_WRAP)
-        val file = File(path)
-        val fos = FileOutputStream(file)
-        fos.write(bytes)
-        fos.close()
+        try {
+            val bytes = android.util.Base64.decode(base64Content, android.util.Base64.NO_WRAP)
+            val file = File(path)
+            file.parentFile?.mkdirs() // Ensure parent directory exists
+            val fos = FileOutputStream(file)
+            fos.write(bytes)
+            fos.flush()
+            fos.close()
+        } catch (e: Exception) {
+            throw Exception("Failed to write base64 file at '$path': ${e.message}")
+        }
     }
 
     override fun readFile(path: String): String {
@@ -160,6 +173,7 @@ class NativeFile(context: ReactApplicationContext) :
             fileMap.putString("name", childFile.name)
             fileMap.putString("path", childFile.absolutePath)
             fileMap.putBoolean("isDirectory", childFile.isDirectory)
+            fileMap.putDouble("size", if (childFile.isDirectory) 0.0 else childFile.length().toDouble())
             fileMaps.pushMap(fileMap)
         }
         return fileMaps

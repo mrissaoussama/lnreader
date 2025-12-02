@@ -3,6 +3,7 @@ import { NovelItem } from '@plugins/types';
 
 import { getPlugin } from '@plugins/pluginManager';
 import { FilterToValues, Filters } from '@plugins/types/filterTypes';
+import { getMMKVObject } from '@utils/mmkv/mmkv';
 
 export const useBrowseSource = (
   pluginId: string,
@@ -10,6 +11,7 @@ export const useBrowseSource = (
   isFilterSheetOpen?: boolean,
 ) => {
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const [novels, setNovels] = useState<NovelItem[]>([]);
   const [error, setError] = useState<string>();
 
@@ -19,7 +21,12 @@ export const useBrowseSource = (
   );
   const [selectedFilters, setSelectedFilters] = useState<
     FilterToValues<Filters> | undefined
-  >(filterValues);
+  >(() => {
+    const savedDefaults = getMMKVObject<FilterToValues<Filters>>(
+      `DEFAULT_FILTER_${pluginId}`,
+    );
+    return savedDefaults || filterValues;
+  });
   const [hasNextPage, setHasNextPage] = useState(true);
 
   const isScreenMounted = useRef(true);
@@ -32,6 +39,9 @@ export const useBrowseSource = (
       }
       if (isScreenMounted.current === true) {
         try {
+          if (page > 1) {
+            setIsFetchingNextPage(true);
+          }
           const plugin = getPlugin(pluginId);
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
@@ -57,6 +67,7 @@ export const useBrowseSource = (
           setError(`${err}`);
         } finally {
           setIsLoading(false);
+          setIsFetchingNextPage(false);
         }
       }
     },
@@ -69,6 +80,13 @@ export const useBrowseSource = (
       return;
     }
     if (hasNextPage) setCurrentPage(prevState => prevState + 1);
+  };
+
+  const goToPage = (page: number) => {
+    if (isFilterSheetOpen) {
+      return;
+    }
+    setCurrentPage(page);
   };
 
   /**
@@ -109,9 +127,12 @@ export const useBrowseSource = (
 
   return {
     isLoading,
+    isFetchingNextPage,
     novels,
     hasNextPage,
     fetchNextPage,
+    goToPage,
+    currentPage,
     error,
     filterValues,
     setFilters,
@@ -125,6 +146,7 @@ export const useSearchSource = (
   isFilterSheetOpen?: boolean,
 ) => {
   const [isSearching, setIsSearching] = useState(false);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const [searchResults, setSearchResults] = useState<NovelItem[]>([]);
   const [searchError, setSearchError] = useState<string>();
   const [hasNextSearchPage, setHasNextSearchPage] = useState(true);
@@ -153,18 +175,18 @@ export const useSearchSource = (
       }
       if (isScreenMounted.current === true) {
         try {
+          if (page > 1) {
+            setIsFetchingNextPage(true);
+          }
           const plugin = getPlugin(pluginId);
           if (!plugin) {
             throw new Error(`Unknown plugin: ${pluginId}`);
           }
           const result = await plugin.searchNovels(localSearchText, page);
-          const filteredRes = result.filter(
-            pluginNovel => !novelInLibrary(pluginId, pluginNovel.path),
-          );
           setSearchResults(prevState =>
-            page === 1 ? filteredRes : [...prevState, ...filteredRes],
+            page === 1 ? result : [...prevState, ...result],
           );
-          if (!filteredRes.length) {
+          if (!result.length) {
             setHasNextSearchPage(false);
           }
         } catch (err: unknown) {
@@ -172,6 +194,7 @@ export const useSearchSource = (
           setHasNextSearchPage(false);
         } finally {
           setIsSearching(false);
+          setIsFetchingNextPage(false);
         }
       }
     },
@@ -184,6 +207,13 @@ export const useSearchSource = (
       return;
     }
     if (hasNextSearchPage) setCurrentPage(prevState => prevState + 1);
+  };
+
+  const searchGoToPage = (page: number) => {
+    if (isFilterSheetOpen) {
+      return;
+    }
+    setCurrentPage(page);
   };
 
   useEffect(() => {
@@ -202,9 +232,12 @@ export const useSearchSource = (
 
   return {
     isSearching,
+    isFetchingNextPage,
     searchResults,
     hasNextSearchPage,
     searchNextPage,
+    searchGoToPage,
+    currentPage,
     searchSource,
     clearSearchResults,
     searchError,

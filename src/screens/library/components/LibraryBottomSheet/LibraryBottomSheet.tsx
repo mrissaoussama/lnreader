@@ -7,15 +7,15 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import {
-  SceneMap,
-  TabBar,
-  TabDescriptor,
-  TabView,
-} from 'react-native-tab-view';
+import { TabBar, TabDescriptor, TabView } from 'react-native-tab-view';
 import color from 'color';
 
-import { useLibrarySettings, useTheme, usePlugins } from '@hooks/persisted';
+import {
+  useLibrarySettings,
+  useTheme,
+  usePlugins,
+  useAppSettings,
+} from '@hooks/persisted';
 import { getString } from '@strings/translations';
 import { Checkbox, SortItem } from '@components/Checkbox/Checkbox';
 import {
@@ -35,10 +35,12 @@ import { FlashList } from '@shopify/flash-list';
 import { Button } from '@components';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMMKVString } from 'react-native-mmkv';
 
 interface LibraryBottomSheetProps {
   bottomSheetRef: RefObject<BottomSheetModalMethods | null>;
   style?: StyleProp<ViewStyle>;
+  categoryId?: number;
 }
 
 const FirstRoute = () => {
@@ -75,10 +77,16 @@ const FirstRoute = () => {
   );
 };
 
-const SecondRoute = () => {
+const SecondRoute = ({ categoryId }: { categoryId?: number }) => {
   const theme = useTheme();
-  const { sortOrder = LibrarySortOrder.DateAdded_DESC, setLibrarySettings } =
+  const { sortOrder: globalSortOrder, setLibrarySettings } =
     useLibrarySettings();
+
+  const [categorySortOrder, setCategorySortOrder] = useMMKVString(
+    categoryId ? `CATEGORY_SORT_${categoryId}` : undefined,
+  );
+
+  const sortOrder = (categorySortOrder as LibrarySortOrder) || globalSortOrder;
 
   return (
     <View style={styles.flex}>
@@ -97,11 +105,16 @@ const SecondRoute = () => {
                 ? 'desc'
                 : undefined
             }
-            onPress={() =>
-              setLibrarySettings({
-                sortOrder: sortOrder === item.ASC ? item.DESC : item.ASC,
-              })
-            }
+            onPress={() => {
+              const newSort = sortOrder === item.ASC ? item.DESC : item.ASC;
+              if (categoryId) {
+                setCategorySortOrder(newSort);
+              } else {
+                setLibrarySettings({
+                  sortOrder: newSort,
+                });
+              }
+            }}
           />
         )}
       />
@@ -116,9 +129,13 @@ const ThirdRoute = () => {
     showNumberOfNovels = false,
     showUnreadBadges = true,
     showNotesBadges = true,
+    showCovers = true,
     displayMode = DisplayModes.Comfortable,
     setLibrarySettings,
   } = useLibrarySettings();
+
+  const { novelMatching, setAppSettings } = useAppSettings();
+  const showMatchingBadges = novelMatching?.showBadges !== false;
 
   return (
     <View style={styles.flex}>
@@ -148,9 +165,21 @@ const ThirdRoute = () => {
           },
           {
             type: 'checkbox',
+            key: 'matchingBadges',
+            label: 'Show Matching Badges',
+            value: showMatchingBadges,
+          },
+          {
+            type: 'checkbox',
             key: 'showNumberOfNovels',
             label: getString('libraryScreen.bottomSheet.display.showNoOfItems'),
             value: showNumberOfNovels,
+          },
+          {
+            type: 'checkbox',
+            key: 'showCovers',
+            label: 'Show covers',
+            value: showCovers,
           },
           { type: 'header', key: 'display-header' },
           ...displayModesList.map(item => ({
@@ -192,9 +221,20 @@ const ThirdRoute = () => {
                     setLibrarySettings({
                       showNotesBadges: !showNotesBadges,
                     });
+                  } else if (item.key === 'matchingBadges') {
+                    setAppSettings({
+                      novelMatching: {
+                        ...novelMatching,
+                        showBadges: !showMatchingBadges,
+                      },
+                    });
                   } else if (item.key === 'showNumberOfNovels') {
                     setLibrarySettings({
                       showNumberOfNovels: !showNumberOfNovels,
+                    });
+                  } else if (item.key === 'showCovers') {
+                    setLibrarySettings({
+                      showCovers: !showCovers,
                     });
                   }
                 }}
@@ -254,6 +294,12 @@ const FourthRoute = () => {
         'LIBRARY_HIDDEN_PLUGINS',
         JSON.stringify(Array.from(newSet)),
       );
+
+      // Trigger library refresh by incrementing a change key
+      const currentKey =
+        MMKVStorage.getNumber('LIBRARY_PLUGIN_FILTER_KEY') || 0;
+      MMKVStorage.set('LIBRARY_PLUGIN_FILTER_KEY', currentKey + 1);
+
       return newSet;
     });
   }, []);
@@ -261,6 +307,10 @@ const FourthRoute = () => {
   const checkAll = useCallback(() => {
     setHiddenPlugins(new Set());
     MMKVStorage.set('LIBRARY_HIDDEN_PLUGINS', '[]');
+
+    // Trigger library refresh
+    const currentKey = MMKVStorage.getNumber('LIBRARY_PLUGIN_FILTER_KEY') || 0;
+    MMKVStorage.set('LIBRARY_PLUGIN_FILTER_KEY', currentKey + 1);
   }, []);
 
   const uncheckAll = useCallback(() => {
@@ -273,6 +323,10 @@ const FourthRoute = () => {
       'LIBRARY_HIDDEN_PLUGINS',
       JSON.stringify(Array.from(allIds)),
     );
+
+    // Trigger library refresh
+    const currentKey = MMKVStorage.getNumber('LIBRARY_PLUGIN_FILTER_KEY') || 0;
+    MMKVStorage.set('LIBRARY_PLUGIN_FILTER_KEY', currentKey + 1);
   }, [pinnedPlugins, nonPinnedPlugins]);
 
   return (
@@ -345,6 +399,7 @@ const FourthRoute = () => {
 const LibraryBottomSheet: React.FC<LibraryBottomSheetProps> = ({
   bottomSheetRef,
   style,
+  categoryId,
 }) => {
   const theme = useTheme();
   const layout = useWindowDimensions();
@@ -389,12 +444,23 @@ const LibraryBottomSheet: React.FC<LibraryBottomSheetProps> = ({
     [],
   );
 
-  const renderScene = SceneMap({
-    first: FirstRoute,
-    second: SecondRoute,
-    third: ThirdRoute,
-    fourth: FourthRoute,
-  });
+  const renderScene = useCallback(
+    ({ route }: { route: { key: string } }) => {
+      switch (route.key) {
+        case 'first':
+          return <FirstRoute />;
+        case 'second':
+          return <SecondRoute categoryId={categoryId} />;
+        case 'third':
+          return <ThirdRoute />;
+        case 'fourth':
+          return <FourthRoute />;
+        default:
+          return null;
+      }
+    },
+    [categoryId],
+  );
 
   const renderCommonOptions = useCallback(
     ({ route, color: col }: { route: any; color: string }) => (

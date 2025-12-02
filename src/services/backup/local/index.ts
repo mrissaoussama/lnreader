@@ -12,12 +12,14 @@ import {
 import NativeFile from '@specs/NativeFile';
 import NativeZipArchive from '@specs/NativeZipArchive';
 import * as Clipboard from 'expo-clipboard';
-import { getAllNovels } from '@database/queries/NovelQueries';
+import { getAllNovels, getNovelById } from '@database/queries/NovelQueries';
 import { getDownloadedChapters } from '@database/queries/ChapterQueries';
 import { NOVEL_STORAGE } from '@utils/Storages';
 import { BackupNovel } from '@database/types';
 import { runAsync } from '@database/utils/helpers';
 import { BackupEntryName } from '../types';
+import { detectCoverStorage } from '@utils/detectCoverStorage';
+import { sleep } from '@utils/sleep';
 
 export interface LocalRestoreResult {
   added: { name: string; reason: string }[];
@@ -231,7 +233,7 @@ export const createBackup = async (
       progressText: `Backup failed: ${message}`,
     });
 
-    showToast(`Backup failed: ${message}`);
+    showToast(`${message}`);
   }
 };
 
@@ -620,6 +622,20 @@ const restoreNovelFiles = async (
       .map(n => [`${n.pluginId}:${n.name}`, n]),
   );
 
+  // Build a map of novelId from result for efficient lookup
+  const resultNovelMap = new Map<string, number>();
+
+  // Add all novels from results (added, overwritten, and skipped)
+  for (const item of [
+    ...(result.added || []),
+    ...(result.overwritten || []),
+    ...(result.skipped || []),
+  ]) {
+    if ((item as any).novelId) {
+      resultNovelMap.set(item.name, (item as any).novelId);
+    }
+  }
+
   const pluginDirs = await NativeFile.readDir(backupNovelsPath);
   for (const pluginDir of pluginDirs) {
     if (!pluginDir.isDirectory) continue;
@@ -629,6 +645,7 @@ const restoreNovelFiles = async (
     );
 
     for (const novelDir of novelDirs) {
+      await sleep(10);
       if (!novelDir.isDirectory) continue;
       const perNovelPath = `${backupNovelsPath}/${pluginId}/${novelDir.name}`;
       const novelJsonPath = `${perNovelPath}/novel.json`;
@@ -651,8 +668,13 @@ const restoreNovelFiles = async (
           continue;
         }
 
-        // Restore cover
-        await restoreNovelCover(perNovelPath, currentNovel.id);
+        // Restore cover for ALL novels (added, overwritten, and skipped)
+        await restoreNovelCover(
+          perNovelPath,
+          currentNovel.id,
+          pluginId,
+          currentNovel.cover,
+        );
 
         // Determine if we should restore chapter files
         const shouldRestoreFiles = jsonContent.isLocal || restoreDownloads;
@@ -696,27 +718,100 @@ const restoreNovelFiles = async (
           name: novelDir.name,
           reason: `Failed to restore novel files: ${msg}`,
         });
+        // Log error to ErrorLogger for user viewing
+        ErrorLogger.log({
+          timestamp: new Date().toISOString(),
+          pluginId: pluginId,
+          novelName: novelDir.name,
+          error: msg,
+          taskType: 'LOCAL_RESTORE',
+        });
       }
     }
   }
 };
 
 /**
- * Restores novel cover from backup novels/{novelId}/cover.png by writing base64 to DB.
+ * Restores novel cover from backup novels/{novelId}/cover.png.
+ * If DB stores covers as BLOB, writes base64 into DB.
+ * If DB stores covers as PATH, replaces the file on disk and updates DB path if missing.
  */
 const restoreNovelCover = async (
   backupNovelPath: string,
   novelId: number,
+  pluginId?: string,
+  existingCover?: string | null,
 ): Promise<void> => {
   const backupCoverPath = `${backupNovelPath}/cover.png`;
-  if (await NativeFile.exists(backupCoverPath)) {
+  if (!(await NativeFile.exists(backupCoverPath))) return;
+
+  const { mode, column } = await detectCoverStorage();
+
+  if (mode === 'blob') {
     try {
       const base64Data = await NativeFile.readFileAsBase64(backupCoverPath);
       if (base64Data) {
-        await runAsync([
-          ['UPDATE Novel SET cover = ? WHERE id = ?', [base64Data, novelId]],
-        ]);
+        // For blob mode, store the base64 data directly
+        const updateQuery =
+          column === 'coverPath'
+            ? 'UPDATE Novel SET coverPath = ? WHERE id = ?'
+            : 'UPDATE Novel SET cover = ? WHERE id = ?';
+        await runAsync([[updateQuery, [base64Data, novelId]]]);
       }
     } catch {}
+    return;
   }
+
+  // Path mode: replace the image file
+  let targetFilePath: string | null = null;
+  try {
+    // Prefer existing cover path from DB if available
+    const current = await getNovelById(novelId);
+    let coverPathStr: string | null = null;
+    if (current) {
+      coverPathStr =
+        (column === 'coverPath' ? (current as any).coverPath : current.cover) ||
+        null;
+    } else {
+      coverPathStr = existingCover || null;
+    }
+
+    // Check if coverPathStr is actually a path (not base64 data)
+    if (
+      coverPathStr &&
+      !coverPathStr.startsWith('data:') &&
+      coverPathStr.length < 500
+    ) {
+      const noScheme = coverPathStr.startsWith('file://')
+        ? coverPathStr.replace('file://', '')
+        : coverPathStr;
+      // Strip query string if present (e.g., cover.png?1717862123181)
+      const withoutQuery = noScheme.split('?')[0];
+      targetFilePath = withoutQuery;
+    }
+  } catch {}
+
+  if (!targetFilePath) {
+    // Default to NOVEL_STORAGE/<pluginId>/<novelId>/cover.png
+    if (!pluginId) return; // cannot determine path
+    const novelDir = `${NOVEL_STORAGE}/${pluginId}/${novelId}`;
+    if (!(await NativeFile.exists(novelDir))) {
+      await NativeFile.mkdir(novelDir);
+    }
+    targetFilePath = `${novelDir}/cover.png`;
+    const uri = `file://${targetFilePath}`;
+    try {
+      const updateQuery =
+        column === 'coverPath'
+          ? 'UPDATE Novel SET coverPath = ? WHERE id = ?'
+          : 'UPDATE Novel SET cover = ? WHERE id = ?';
+      await runAsync([[updateQuery, [uri, novelId]]]);
+    } catch {}
+  }
+
+  try {
+    if (targetFilePath) {
+      await NativeFile.copyFile(backupCoverPath, targetFilePath);
+    }
+  } catch {}
 };

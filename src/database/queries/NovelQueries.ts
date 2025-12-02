@@ -16,12 +16,13 @@ import {
 import { getString } from '@strings/translations';
 import { BackupNovel, NovelInfo } from '../types';
 import { SourceNovel } from '@plugins/types';
-import { NOVEL_STORAGE } from '@utils/Storages';
+import { StorageManager } from '@utils/StorageManager';
 import { downloadFile } from '@plugins/helpers/fetch';
 import { getPlugin } from '@plugins/pluginManager';
 import { db } from '@database/db';
 import { updateNovelHasMatch } from '@database/queries/LibraryQueries';
 import NativeFile from '@specs/NativeFile';
+import { dbWriteQueue } from '@database/utils/DbWriteQueue';
 
 export const insertNovelAndChapters = async (
   pluginId: string,
@@ -31,63 +32,69 @@ export const insertNovelAndChapters = async (
   const normalizedPath = normalizePath(sourceNovel.path || '');
   let novelId: number | undefined;
 
-  await db.withTransactionAsync(async () => {
-    const insertNovelQuery =
-      'INSERT INTO Novel (path, pluginId, name, cover, summary, author, artist, status, genres, totalPages) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-    const result = await db.runAsync(insertNovelQuery, [
-      normalizedPath,
-      pluginId,
-      sourceNovel.name,
-      sourceNovel.cover || null,
-      sourceNovel.summary || null,
-      sourceNovel.author || null,
-      sourceNovel.artist || null,
-      sourceNovel.status || null,
-      sourceNovel.genres || null,
-      sourceNovel.totalPages || 0,
-    ]);
-    novelId = result.lastInsertRowId;
+  await dbWriteQueue.enqueue(
+    async qdb => {
+      const insertNovelQuery =
+        'INSERT INTO Novel (path, pluginId, name, cover, summary, author, artist, status, genres, totalPages) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      const result = await qdb.runAsync(insertNovelQuery, [
+        normalizedPath,
+        pluginId,
+        sourceNovel.name,
+        sourceNovel.cover || null,
+        sourceNovel.summary || null,
+        sourceNovel.author || null,
+        sourceNovel.artist || null,
+        sourceNovel.status || null,
+        sourceNovel.genres || null,
+        sourceNovel.totalPages || 0,
+      ]);
+      novelId = (result as any).lastInsertRowId;
 
-    if (novelId) {
-      // Insert alternative titles if they exist
-      const alternativeTitles = sourceNovel.alternativeTitles || [];
-      const cleanTitles = [
-        ...new Set(
-          alternativeTitles
-            .map(title => title.trim())
-            .filter(title => title.length > 0),
-        ),
-      ];
+      if (novelId) {
+        // Insert alternative titles if they exist
+        const alternativeTitles = sourceNovel.alternativeTitles || [];
+        const cleanTitles = [
+          ...new Set(
+            alternativeTitles
+              .map(title => title.trim())
+              .filter(title => title.length > 0),
+          ),
+        ];
 
-      for (const title of cleanTitles) {
-        try {
-          await db.runAsync(
-            'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
-            novelId,
-            title,
+        for (const title of cleanTitles) {
+          try {
+            await qdb.runAsync(
+              'INSERT OR IGNORE INTO AlternativeTitle (novelId, title) VALUES (?, ?)',
+              novelId,
+              title,
+            );
+          } catch (e) {}
+        }
+        await updateNovelHasMatch(novelId);
+        if (sourceNovel.cover) {
+          const novelDir = StorageManager.getNovelDirectory(pluginId, novelId);
+          NativeFile.mkdir(novelDir);
+          const novelCoverPath = novelDir + '/cover.png';
+          const novelCoverUri = 'file://' + novelCoverPath;
+          await downloadFile(
+            sourceNovel.cover,
+            novelCoverPath,
+            getPlugin(pluginId)?.imageRequestInit,
           );
-        } catch (e) {}
+          await qdb.runAsync(
+            'UPDATE Novel SET cover = ? WHERE id = ?',
+            novelCoverUri,
+            novelId,
+          );
+        }
+        // Insert chapters without starting a nested transaction
+        await insertChapters(novelId, sourceNovel.chapters, {
+          transactional: false,
+        });
       }
-      await updateNovelHasMatch(novelId);
-      if (sourceNovel.cover) {
-        const novelDir = NOVEL_STORAGE + '/' + pluginId + '/' + novelId;
-        NativeFile.mkdir(novelDir);
-        const novelCoverPath = novelDir + '/cover.png';
-        const novelCoverUri = 'file://' + novelCoverPath;
-        await downloadFile(
-          sourceNovel.cover,
-          novelCoverPath,
-          getPlugin(pluginId)?.imageRequestInit,
-        );
-        await db.runAsync(
-          'UPDATE Novel SET cover = ? WHERE id = ?',
-          novelCoverUri,
-          novelId,
-        );
-      }
-      await insertChapters(novelId, sourceNovel.chapters);
-    }
-  });
+    },
+    { transactional: true, exclusive: true, label: 'insertNovelAndChapters' },
+  );
   return novelId;
 };
 
@@ -96,10 +103,18 @@ export const getAllNovels = async () => {
 };
 
 export const getNovelById = async (novelId: number) => {
-  return getFirstAsync<NovelInfo>([
+  const novel = await getFirstAsync<NovelInfo>([
     'SELECT * FROM Novel WHERE id = ?',
     [novelId],
   ]);
+  if (novel) {
+    const altTitles = await getAllAsync<{ title: string }>([
+      'SELECT title FROM AlternativeTitle WHERE novelId = ?',
+      [novelId],
+    ]);
+    novel.alternativeTitles = altTitles.map(t => t.title);
+  }
+  return novel;
 };
 
 export const getNovelByPath = (
@@ -283,12 +298,36 @@ export const updateNovelInfo = async (info: NovelInfo) => {
 export const pickCustomNovelCover = async (novel: NovelInfo) => {
   const image = await DocumentPicker.getDocumentAsync({ type: 'image/*' });
   if (image.assets && image.assets[0]) {
-    const novelDir = NOVEL_STORAGE + '/' + novel.pluginId + '/' + novel.id;
-    let novelCoverUri = 'file://' + novelDir + '/cover.png';
-    if (!NativeFile.exists(novelDir)) {
-      NativeFile.mkdir(novelDir);
+    // Use StorageManager to get the correct novel path (respects SD card setting)
+    let novelDir: string;
+    try {
+      novelDir = StorageManager.getNovelPath(novel.id, novel.pluginId);
+    } catch (error) {
+      novelDir = `${StorageManager.getNovelStorage()}/${novel.pluginId}/${
+        novel.id
+      }`;
     }
-    await NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
+
+    let novelCoverUri = 'file://' + novelDir + '/cover.png';
+
+    try {
+      if (!NativeFile.exists(novelDir)) {
+        NativeFile.mkdir(novelDir);
+      }
+      await NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
+    } catch (copyError) {
+      // If SD card fails, fallback to internal storage
+
+      const fallbackDir = `${
+        NativeFile.getConstants().ExternalDirectoryPath
+      }/Novels/${novel.pluginId}/${novel.id}`;
+      if (!NativeFile.exists(fallbackDir)) {
+        NativeFile.mkdir(fallbackDir);
+      }
+      novelCoverUri = 'file://' + fallbackDir + '/cover.png';
+      await NativeFile.copyFile(image.assets[0].uri, novelCoverUri);
+    }
+
     novelCoverUri += '?' + Date.now();
     await db.runAsync(
       'UPDATE Novel SET cover = ? WHERE id = ?',
@@ -297,6 +336,16 @@ export const pickCustomNovelCover = async (novel: NovelInfo) => {
     );
     return novelCoverUri;
   }
+};
+
+export const deleteNovelCover = async (novel: NovelInfo) => {
+  if (novel.cover && novel.cover.startsWith('file://')) {
+    const coverPath = novel.cover.replace('file://', '');
+    if (await NativeFile.exists(coverPath)) {
+      await NativeFile.unlink(coverPath);
+    }
+  }
+  await db.runAsync('UPDATE Novel SET cover = ? WHERE id = ?', null, novel.id);
 };
 
 export const updateNovelCategoryById = async (

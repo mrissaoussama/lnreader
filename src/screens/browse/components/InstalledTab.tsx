@@ -25,6 +25,7 @@ import { useBoolean, UseBooleanReturnType } from '@hooks';
 import { getPlugin } from '@plugins/pluginManager';
 import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
+import { getLocaleLanguageName } from '@utils/constants/languages';
 
 interface InstalledTabProps {
   navigation: BrowseScreenProps['navigation'];
@@ -41,7 +42,7 @@ const Item = memo(
     navigateToSource,
     setSelectedPluginId,
   }: {
-    item: PluginItem;
+    item: PluginItem & { header?: boolean };
     theme: ThemeColors;
     navigation: BrowseScreenProps['navigation'];
     settingsModal: UseBooleanReturnType;
@@ -155,61 +156,68 @@ const Item = memo(
       [rightActionStyle, theme, handleDeletePress],
     );
     return (
-      <Swipeable
-        dragOffsetFromLeftEdge={30}
-        dragOffsetFromRightEdge={30}
-        renderLeftActions={renderLeftActions}
-        renderRightActions={renderRightActions}
-      >
-        <Pressable
-          style={containerStyle}
-          android_ripple={{ color: theme.rippleColor }}
-          onPress={handlePress}
+      <View>
+        {item.header ? (
+          <Text style={[styles.listHeader, { color: theme.onSurfaceVariant }]}>
+            {getLocaleLanguageName(item.lang)}
+          </Text>
+        ) : null}
+        <Swipeable
+          dragOffsetFromLeftEdge={30}
+          dragOffsetFromRightEdge={30}
+          renderLeftActions={renderLeftActions}
+          renderRightActions={renderRightActions}
         >
-          <View style={[styles.center, styles.row]}>
-            <Image source={{ uri: item.iconUrl }} style={iconStyle} />
-            <View style={styles.details}>
-              <Text numberOfLines={1} style={nameStyle}>
-                {item.name}
-              </Text>
-              <Text numberOfLines={1} style={additionStyle}>
-                {`${item.lang} - ${item.version}`}
-              </Text>
+          <Pressable
+            style={containerStyle}
+            android_ripple={{ color: theme.rippleColor }}
+            onPress={handlePress}
+          >
+            <View style={[styles.center, styles.row]}>
+              <Image source={{ uri: item.iconUrl }} style={iconStyle} />
+              <View style={styles.details}>
+                <Text numberOfLines={1} style={nameStyle}>
+                  {item.name}
+                </Text>
+                <Text numberOfLines={1} style={additionStyle}>
+                  {`${item.lang} - ${item.version}`}
+                </Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.flex} />
-          <IconButtonV2
-            name={isPinned(item.id) ? 'pin' : 'pin-outline'}
-            size={22}
-            color={theme.primary}
-            onPress={() => togglePin(item.id)}
-            theme={theme}
-          />
-          {item.hasSettings ? (
+            <View style={styles.flex} />
             <IconButtonV2
-              name="cog-outline"
+              name={isPinned(item.id) ? 'pin' : 'pin-outline'}
               size={22}
               color={theme.primary}
-              onPress={handleSettingsPress}
+              onPress={() => togglePin(item.id)}
               theme={theme}
             />
-          ) : null}
-          {item.hasUpdate || __DEV__ ? (
-            <IconButtonV2
-              name="download-outline"
-              size={22}
-              color={theme.primary}
-              onPress={handleUpdatePress}
-              theme={theme}
+            {item.hasSettings ? (
+              <IconButtonV2
+                name="cog-outline"
+                size={22}
+                color={theme.primary}
+                onPress={handleSettingsPress}
+                theme={theme}
+              />
+            ) : null}
+            {item.hasUpdate || __DEV__ ? (
+              <IconButtonV2
+                name="download-outline"
+                size={22}
+                color={theme.primary}
+                onPress={handleUpdatePress}
+                theme={theme}
+              />
+            ) : null}
+            <Button
+              title={getString('browseScreen.latest')}
+              textColor={theme.primary}
+              onPress={handleLatestPress}
             />
-          ) : null}
-          <Button
-            title={getString('browseScreen.latest')}
-            textColor={theme.primary}
-            onPress={handleLatestPress}
-          />
-        </Pressable>
-      </Swipeable>
+          </Pressable>
+        </Swipeable>
+      </View>
     );
   },
 );
@@ -310,7 +318,7 @@ const SkeletonItem = memo(
 const DeferredItem = ({
   ...props
 }: {
-  item: PluginItem;
+  item: PluginItem & { header?: boolean };
   theme: ThemeColors;
   navigation: BrowseScreenProps['navigation'];
   settingsModal: UseBooleanReturnType;
@@ -369,18 +377,28 @@ export const InstalledTab = memo(
         plg => !(pinnedPluginIds || []).includes(plg.id),
       );
       const sortedInstalledPlugins = nonPinnedInstalled.sort(
-        (plgFirst, plgSecond) => plgFirst.name.localeCompare(plgSecond.name),
+        (plgFirst, plgSecond) => {
+          const langDiff = plgFirst.lang.localeCompare(plgSecond.lang);
+          if (langDiff !== 0) {
+            return langDiff;
+          }
+          return plgFirst.name.localeCompare(plgSecond.name);
+        },
       );
+      let res = sortedInstalledPlugins;
       if (searchText) {
         const lowerCaseSearchText = searchText.toLocaleLowerCase();
-        return sortedInstalledPlugins.filter(
+        res = sortedInstalledPlugins.filter(
           plg =>
             plg.name.toLocaleLowerCase().includes(lowerCaseSearchText) ||
             plg.id.includes(lowerCaseSearchText),
         );
-      } else {
-        return sortedInstalledPlugins;
       }
+
+      return res.map((plg, i) => ({
+        ...plg,
+        header: i === 0 ? true : plg.lang !== res[i - 1].lang,
+      }));
     }, [searchText, filteredInstalledPlugins, pinnedPluginIds]);
 
     const renderItem: ListRenderItem<PluginItem> = useCallback(

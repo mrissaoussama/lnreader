@@ -35,7 +35,12 @@
     "clearAllNotes": "Clear all notes",
     "clearAllNotesDesc": "Delete all novel notes",
     "clearNotesWarning": "All novel notes will be permanently deleted.",
-    "clearNotesMessage": "All notes cleared."
+    "clearNotesMessage": "All notes cleared.",
+    "clearPersistentQueue": "Clear pending queue tasks",
+    "clearPersistentQueueDesc": "Delete temporary JSON files for pending database operations",
+    "clearPersistentQueueWarning": "All pending database operations will be lost. This may cause data loss if operations haven't completed yet.",
+    "clearPersistentQueueMessage": "Cleared %{count} pending task(s).",
+    "clearPersistentQueueNone": "No pending tasks to clear."
   },
   "libraryMatching": {
     "title": "Novel Matching",
@@ -174,12 +179,15 @@
       "managePresets": "Manage Filter Presets",
       "noPresets": "No saved presets",
       "loadPreset": "Load Preset",
-      "deletePreset": "Delete Preset"
+      "deletePreset": "Delete Preset",
+      "setAsDefault": "Set as Default",
+      "defaultFilterSaved": "Default filter saved"
     },
     "loadingPaused": "Loading paused",
     "localFilteringPaused": "Local filtering paused",
     "importSelected": "Import %{count}",
-    "urlsCopiedAndImported": "%{count} URLs copied to clipboard and added to bulk import"
+    "urlsCopiedAndImported": "%{count} URLs copied to clipboard and added to bulk import",
+    "confirmLeave": "Are you sure you want to leave this plugin?"
   },
   "browseSettings": "Browse Settings",
   "browseSettingsScreen": {
@@ -301,10 +309,13 @@
     "import": "Import",
     "install": "Install",
     "logout": "Logout",
+    "manage": "Manage",
     "name": "Name",
     "newUpdateAvailable": "New update available",
+    "off": "Off",
     "ok": "Ok",
     "pause": "Pause",
+    "paused": "Paused",
     "preparing": "Preparing",
     "remove": "Remove",
     "reset": "Reset",
@@ -322,6 +333,7 @@
     "sort": "Sort",
     "submit": "Submit",
     "loading": "Loading ...",
+    "loadMore": "Load more",
     "warning": "Warning",
     "readingList": "reading list",
     "status": "status"
@@ -370,6 +382,10 @@
     "disableHapticFeedbackDescription": "Turn off vibrations for touch interactions.",
     "displayMode": "Display Mode",
     "downloadNewChapters": "Download new chapters",
+    "resumeDownloadAfter": "Resume download after",
+    "resumeDownloadAfterDesc": "Automatically resume downloads after pausing",
+    "resumeOnWifiOnly": "Resume on Wi-Fi only",
+    "resumeOnWifiOnlyDesc": "Only resume downloads when connected to Wi-Fi",
     "epub": "EPUB",
     "epubLocation": "EPUB Location",
     "epubLocationDescription": "The place where you open and export your EPUB files.",
@@ -487,9 +503,14 @@
   "novelScreen": {
     "addToLibaray": "Add to library",
     "bottomSheet": {
+      "actions": {
+        "deleteAllDownloads": "Delete all downloaded chapters",
+        "deleteAllChapters": "Delete all chapters"
+      },
       "displays": {
         "chapterNumber": "Chapter number",
-        "sourceTitle": "Source title"
+        "sourceTitle": "Source title",
+        "both": "Both"
       },
       "filters": {
         "bookmarked": "Bookmarked",
@@ -599,6 +620,7 @@
     "bottomSheet": {
       "allowTextSelection": "Allow text selection",
       "autoscroll": "AutoScroll",
+      "pauseAutoscrollOnTap": "Pause autoscroll on tap",
       "bionicReading": "Bionic Reading",
       "tapToScroll": "Tap to scroll",
       "color": "Color",
@@ -617,7 +639,8 @@
       "useChapterDrawerSwipeNavigation": "Swipe right to open drawer",
       "verticalSeekbar": "Vertical Seekbar",
       "keepScreenOn": "Keep screen on",
-      "volumeButtonsScroll": "Volume buttons scroll"
+      "volumeButtonsScroll": "Volume buttons scroll",
+      "useServiceForeground": "Use foreground service"
     },
     "drawer": {
       "scrollToBottom": "Scroll to bottom",
@@ -651,7 +674,9 @@
     "textColor": "Text color",
     "textColorModal": "Reader text color",
     "title": "Reader",
-    "verticalSeekbarDesc": "Switch between vertical and horizontal seekbar"
+    "verticalSeekbarDesc": "Switch between vertical and horizontal seekbar",
+    "autoScrollInterval": "Auto scroll interval",
+    "progressBarPosition": "Progress bar position"
   },
   "sourceScreen": {
     "noResultsFound": "No results found"

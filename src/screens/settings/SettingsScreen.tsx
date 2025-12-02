@@ -79,6 +79,26 @@ const SettingsScreen = ({ navigation }: SettingsScreenProps) => {
           theme={theme}
         />
         <List.Item
+          title="Storage"
+          icon="harddisk"
+          onPress={() =>
+            navigation.navigate('SettingsStack', {
+              screen: 'StorageSettings',
+            })
+          }
+          theme={theme}
+        />
+        <List.Item
+          title="Network"
+          icon="web"
+          onPress={() =>
+            navigation.navigate('SettingsStack', {
+              screen: 'NetworkSettings',
+            })
+          }
+          theme={theme}
+        />
+        <List.Item
           title={getString('advancedSettings')}
           icon="code-tags"
           onPress={() =>

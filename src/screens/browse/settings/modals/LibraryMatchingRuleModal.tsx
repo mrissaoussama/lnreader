@@ -4,7 +4,7 @@ import { Portal } from 'react-native-paper';
 import { RadioButton, Modal } from '@components';
 import { getString } from '@strings/translations';
 import { ThemeColors } from '@theme/types';
-import { useBrowseSettings } from '@hooks/persisted';
+import { useAppSettings } from '@hooks/persisted';
 import { MatchingRule } from '@utils/libraryMatching';
 
 interface LibraryMatchingRuleModalProps {
@@ -18,10 +18,10 @@ const LibraryMatchingRuleModal: React.FC<LibraryMatchingRuleModalProps> = ({
   onDismiss,
   theme,
 }) => {
-  const { novelMatching, setBrowseSettings } = useBrowseSettings();
+  const { novelMatching, setAppSettings } = useAppSettings();
 
   const handlePluginRuleChange = (rule: MatchingRule) => {
-    setBrowseSettings({
+    setAppSettings({
       novelMatching: {
         ...(novelMatching ?? {}),
         pluginRule: rule,
@@ -30,7 +30,7 @@ const LibraryMatchingRuleModal: React.FC<LibraryMatchingRuleModalProps> = ({
   };
 
   const handleLibraryRuleChange = (rule: MatchingRule) => {
-    setBrowseSettings({
+    setAppSettings({
       novelMatching: {
         ...(novelMatching ?? {}),
         libraryRule: rule,

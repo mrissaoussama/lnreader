@@ -13,6 +13,7 @@ import * as Clipboard from 'expo-clipboard';
 import { getString } from '@strings/translations';
 import { extractPathFromUrl, normalizePath } from '@utils/urlUtils';
 import { setMMKVObject } from '@utils/mmkv/mmkv';
+import { dbWriteQueue } from '@database/utils/DbWriteQueue';
 
 // Simple retry for database operations with exponential backoff
 const simpleRetry = async <T>(
@@ -48,7 +49,13 @@ export interface ImportResult {
   added: { name: string; url: string }[];
   skipped: { name: string; url: string }[];
   errored: { name: string; url: string; error: string }[];
-  staged: { name: string; url: string; novelId: number }[]; // New: novels ready to be added to library
+  staged: {
+    name: string;
+    url: string;
+    novelId: number;
+    pluginId: string;
+    path: string;
+  }[]; // Added pluginId and path
 }
 
 export { plugins } from '@plugins/pluginManager';
@@ -200,27 +207,38 @@ const processUrl = async (
         } else {
           // Novel exists but not in library - add it to library
           try {
-            await simpleRetry(async () => {
-              await db.withTransactionAsync(async () => {
-                await db.runAsync(
+            await dbWriteQueue.enqueue(
+              async qdb => {
+                await qdb.runAsync(
                   'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
                   [existingNovel.id],
                 );
 
                 // Use selected categoryId or default category
                 if (categoryId) {
-                  await db.runAsync(
+                  await qdb.runAsync(
                     'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
                     [existingNovel.id, categoryId],
                   );
                 } else {
-                  await db.runAsync(
+                  await qdb.runAsync(
                     'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
                     [existingNovel.id],
                   );
                 }
-              });
-            });
+              },
+              {
+                transactional: true,
+                label: 'massImport:addExisting',
+                taskType: 'MASS_IMPORT',
+                persistentData: {
+                  novelId: existingNovel.id,
+                  categoryId: categoryId || null,
+                  pluginId: plugin.id,
+                  path: normalizedPath,
+                },
+              },
+            );
 
             results.added.push({ name: novel.name, url });
           } catch (addError: any) {
@@ -248,6 +266,8 @@ const processUrl = async (
           name: novel.name,
           url,
           novelId: novelId,
+          pluginId: plugin.id, // Added pluginId
+          path: normalizedPath, // Added path
         });
       } else {
         const error = 'Failed to insert novel';
@@ -364,7 +384,18 @@ export const massImport = async (
   }));
 
   try {
-    const PLUGIN_STORAGE = require('@utils/Storages').PLUGIN_STORAGE;
+    const PLUGIN_STORAGE = (() => {
+      let base =
+        require('@utils/StorageManager').StorageManager.getPluginStorage();
+      if (typeof base === 'string' && base.startsWith('content://')) {
+        // Fallback for plugin scanning since content:// cannot be read via NativeFile
+        const NativeFileModule = require('@specs/NativeFile').default;
+        base = `${
+          NativeFileModule.getConstants().ExternalDirectoryPath
+        }/Plugins`;
+      }
+      return base;
+    })();
 
     if (NativeFile.exists(PLUGIN_STORAGE)) {
       const pluginDirs = NativeFile.readDir(PLUGIN_STORAGE);
@@ -397,6 +428,7 @@ export const massImport = async (
     const urlsToProcess: string[] = [];
     const totalUrls = urls.length;
     let processedCount = 0;
+    let lastProgressUpdate = 0; // Track last progress update to debounce
 
     setMeta(meta => ({
       ...meta,
@@ -448,27 +480,38 @@ export const massImport = async (
           } else {
             // Novel exists but not in library - add it to library
             try {
-              await simpleRetry(async () => {
-                await db.withTransactionAsync(async () => {
-                  await db.runAsync(
+              await dbWriteQueue.enqueue(
+                async qdb => {
+                  await qdb.runAsync(
                     'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
                     [preCheckNovel.id],
                   );
 
                   // Use selected categoryId or default category
                   if (categoryId) {
-                    await db.runAsync(
+                    await qdb.runAsync(
                       'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
                       [preCheckNovel.id, categoryId],
                     );
                   } else {
-                    await db.runAsync(
+                    await qdb.runAsync(
                       'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
                       [preCheckNovel.id],
                     );
                   }
-                });
-              });
+                },
+                {
+                  transactional: true,
+                  label: 'massImport:addExisting',
+                  taskType: 'MASS_IMPORT',
+                  persistentData: {
+                    novelId: preCheckNovel.id,
+                    categoryId: categoryId || null,
+                    pluginId: plugin.id,
+                    path: normalizedPath,
+                  },
+                },
+              );
 
               results.added.push({ name: preCheckNovel.name, url });
             } catch (addError: any) {
@@ -509,7 +552,11 @@ export const massImport = async (
     const domainPromises = Object.values(urlsByDomain).map(
       async (urlGroup: string[]) => {
         for (let i = 0; i < urlGroup.length; i++) {
-          await sleep(0); // Yield to prevent ANR
+          +(
+            // CRITICAL: More aggressive yielding to prevent ANR
+            // Always yield with at least 10ms to give the system breathing room
+            (await sleep(10))
+          ); // Changed from sleep(0) to sleep(10)
 
           // Additional yield every 5 URLs to be more aggressive about preventing ANR
           if (i > 0 && i % 5 === 0) {
@@ -527,13 +574,20 @@ export const massImport = async (
           }
 
           const url = urlGroup[i];
-          setMeta(meta => ({
-            ...meta,
-            progressText: `Processing: ${url} (${
-              processedCount + 1
-            }/${totalUrls})`,
-            progress: processedCount / totalUrls,
-          }));
+
+          // Debounce progress updates (update every 500ms max)
+          const now = Date.now();
+          if (
+            now - lastProgressUpdate > 500 ||
+            processedCount + 1 === totalUrls
+          ) {
+            lastProgressUpdate = now;
+            setMeta(meta => ({
+              ...meta,
+              progressText: `Processing: ${processedCount + 1}/${totalUrls}`,
+              progress: processedCount / totalUrls,
+            }));
+          }
 
           await processUrl(url, workingPlugins, results, taskId, categoryId); // Pass taskId
           processedCount++;
@@ -591,31 +645,34 @@ export const massImport = async (
         }));
 
         try {
-          // Process entire batch in a single transaction for better performance
-          await simpleRetry(async () => {
-            await db.withTransactionAsync(async () => {
+          // Process entire batch via single-writer queue
+          await dbWriteQueue.enqueue(
+            async qdb => {
               for (const stagedNovel of batch) {
-                // Update novel to be in library
-                await db.runAsync(
+                await qdb.runAsync(
                   'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
                   [stagedNovel.novelId],
                 );
 
-                // Use selected categoryId or default category
                 if (categoryId) {
-                  await db.runAsync(
+                  await qdb.runAsync(
                     'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
                     [stagedNovel.novelId, categoryId],
                   );
                 } else {
-                  await db.runAsync(
+                  await qdb.runAsync(
                     'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
                     [stagedNovel.novelId],
                   );
                 }
               }
-            });
-          });
+            },
+            {
+              transactional: true,
+              label: 'massImport:addBatch',
+              taskType: 'MASS_IMPORT',
+            },
+          );
 
           // Mark all novels in this batch as successfully added
           batch.forEach(stagedNovel => {
@@ -633,25 +690,31 @@ export const massImport = async (
             }
 
             try {
-              await simpleRetry(async () => {
-                await db.runAsync(
-                  'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
-                  [stagedNovel.novelId],
-                );
-
-                // Use selected categoryId or default category
-                if (categoryId) {
-                  await db.runAsync(
-                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
-                    [stagedNovel.novelId, categoryId],
-                  );
-                } else {
-                  await db.runAsync(
-                    'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+              await dbWriteQueue.enqueue(
+                async qdb => {
+                  await qdb.runAsync(
+                    'UPDATE Novel SET inLibrary = 1 WHERE id = ?',
                     [stagedNovel.novelId],
                   );
-                }
-              });
+
+                  if (categoryId) {
+                    await qdb.runAsync(
+                      'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, ?)',
+                      [stagedNovel.novelId, categoryId],
+                    );
+                  } else {
+                    await qdb.runAsync(
+                      'INSERT OR IGNORE INTO NovelCategory (novelId, categoryId) VALUES (?, (SELECT DISTINCT id FROM Category WHERE sort = 1))',
+                      [stagedNovel.novelId],
+                    );
+                  }
+                },
+                {
+                  transactional: true,
+                  label: 'massImport:addIndividual',
+                  taskType: 'MASS_IMPORT',
+                },
+              );
 
               results.added.push({
                 name: stagedNovel.name,

@@ -38,6 +38,8 @@ import {
 } from '@utils/filterPresets';
 import SavePresetModal from './SavePresetModal';
 import ManagePresetsModal from './ManagePresetsModal';
+import { setMMKVObject } from '@utils/mmkv/mmkv';
+import { showToast } from '@utils/showToast';
 
 const insertOrRemoveIntoArray = (array: string[], val: string): string[] =>
   array.indexOf(val) > -1 ? array.filter(ele => ele !== val) : [...array, val];
@@ -396,7 +398,7 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
     <>
       <BottomSheet
         bottomSheetRef={filterSheetRef}
-        snapPoints={[400, 600]}
+        snapPoints={[500, 700]}
         bottomInset={bottom}
         backgroundStyle={styles.transparent}
         style={[
@@ -481,6 +483,25 @@ const FilterBottomSheet: React.FC<BottomSheetProps> = ({
         presets={presets}
         onLoadPreset={handleLoadPreset}
         onDeletePreset={handleDeletePreset}
+        onSetDefault={preset => {
+          const { setDefaultPreset } = require('@utils/filterPresets');
+          // Toggle: if already default, unset it; otherwise set it
+          if (preset.isDefault) {
+            setDefaultPreset(pluginId, null);
+            showToast('Default preset removed');
+          } else {
+            setDefaultPreset(pluginId, preset.id);
+            setMMKVObject(`DEFAULT_FILTER_${pluginId}`, preset.filters);
+            showToast(
+              getString('browseScreen.filterPresets.defaultFilterSaved'),
+            );
+          }
+          // Reload presets to reflect changes
+          const {
+            getFilterPresets: getPresetsUtil,
+          } = require('@utils/filterPresets');
+          setPresets(getPresetsUtil(pluginId));
+        }}
         theme={theme}
       />
     </>

@@ -8,17 +8,66 @@ import {
 } from '@database/utils/helpers';
 import { showToast } from '@utils/showToast';
 import { db } from '@database/db';
+import { detectCoverSchema } from '@utils/detectCoverStorage';
+
+// Detect cover storage schema: whether cover column is BLOB vs TEXT, and if coverPath exists
+// const detectCoverSchema = async (): Promise<{
+//   mode: 'blob' | 'path';
+//   pathColumn: 'cover' | 'coverPath';
+// }> => {
+//   try {
+//     const rows = await db.getAllAsync<{ name: string; type: string }>(
+//       "PRAGMA table_info('Novel')",
+//     );
+//     let pathColumn: 'cover' | 'coverPath' = 'cover';
+//     let coverType = 'TEXT';
+//     for (const row of rows) {
+//       const name = (row as any).name as string;
+//       const type = ((row as any).type || '').toString().toUpperCase();
+//       if (name === 'coverPath') pathColumn = 'coverPath';
+//       if (name === 'cover') coverType = type || 'TEXT';
+//     }
+//     const mode: 'blob' | 'path' = coverType.includes('BLOB') ? 'blob' : 'path';
+//     return { mode, pathColumn };
+//   } catch {
+//     return { mode: 'path', pathColumn: 'cover' };
+//   }
+// };
+
 export const insertNovelFromBackup = async (
   novelWithLibraryFlag: any,
 ): Promise<number | null> => {
-  const novelKeys = Object.keys(novelWithLibraryFlag);
+  // Normalize cover fields per schema
+  const { mode, pathColumn } = await detectCoverSchema();
+  const novelData: Record<string, any> = { ...novelWithLibraryFlag };
+
+  // Prefer incoming path value from either cover or coverPath
+  const incomingPath: string | null =
+    (novelData.coverPath as string) || (novelData.cover as string) || null;
+
+  if (mode === 'blob') {
+    // Do not write path string into cover in blob mode; blob will be set later in file restore
+    delete novelData.coverPath;
+    if (typeof novelData.cover === 'string') delete novelData.cover;
+  } else {
+    // Path mode: map to path column and remove the other cover field to avoid duplication
+    if (pathColumn === 'coverPath') {
+      if (incomingPath) novelData.coverPath = incomingPath;
+      delete novelData.cover;
+    } else {
+      if (incomingPath) novelData.cover = incomingPath;
+      delete novelData.coverPath;
+    }
+  }
+
+  const novelKeys = Object.keys(novelData);
   const novelQuery = `
     INSERT INTO Novel
     (${novelKeys.join(',')})
     VALUES (${novelKeys.map(() => '?').join(',')})
   `;
 
-  const novelValues = Object.values(novelWithLibraryFlag).map(value =>
+  const novelValues = Object.values(novelData).map(value =>
     value === null || value === undefined ? null : value,
   ) as (string | number | null)[];
 
@@ -112,17 +161,38 @@ export const updateNovelFromBackup = async (
   novelId: number,
   backupNovelInfo: Partial<NovelInfo>,
 ): Promise<void> => {
-  const updateFields = [];
-  const updateValues = [];
+  // Normalize cover fields per schema
+  const { mode, pathColumn } = await detectCoverSchema();
+  const updateFields: string[] = [];
+  const updateValues: any[] = [];
 
   if (backupNovelInfo.name) {
     updateFields.push('name = ?');
     updateValues.push(backupNovelInfo.name);
   }
-  if (backupNovelInfo.cover) {
-    updateFields.push('cover = ?');
-    updateValues.push(backupNovelInfo.cover);
+
+  // Cover handling
+  const incomingPath: string | null =
+    ((backupNovelInfo as any).coverPath as string) ||
+    (backupNovelInfo.cover as unknown as string) ||
+    null;
+
+  if (mode === 'path') {
+    if (pathColumn === 'coverPath') {
+      if (incomingPath) {
+        updateFields.push('coverPath = ?');
+        updateValues.push(incomingPath);
+      }
+      // Avoid writing string into cover if cover is BLOB or unused
+    } else {
+      if (incomingPath) {
+        updateFields.push('cover = ?');
+        updateValues.push(incomingPath);
+      }
+    }
   }
+  // In blob mode, skip writing cover here; the file restore will update the blob later.
+
   if (backupNovelInfo.summary) {
     updateFields.push('summary = ?');
     updateValues.push(backupNovelInfo.summary);

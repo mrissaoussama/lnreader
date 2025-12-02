@@ -82,7 +82,9 @@ export type SettingsStackParamList = {
   AppearanceSettings: undefined;
   AdvancedSettings: undefined;
   LibrarySettings: undefined;
+  NetworkSettings: undefined;
   RespositorySettings: { url?: string } | undefined;
+  StorageSettings: undefined;
 };
 
 export type NovelScreenProps = StackScreenProps<

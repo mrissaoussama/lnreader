@@ -12,8 +12,10 @@ import ConfirmationDialog from '@components/ConfirmationDialog/ConfirmationDialo
 import {
   deleteReadChaptersFromDb,
   clearUpdates,
+  clearUnreadUndownloadedChapters,
 } from '@database/queries/ChapterQueries';
 import { deleteAllNotes } from '@database/queries/NotesQueries';
+import { dbWriteQueue } from '@database/utils/DbWriteQueue';
 
 import { Appbar, Button, List, Modal, SafeAreaView } from '@components';
 import { AdvancedSettingsScreenProps } from '@navigators/types';
@@ -33,6 +35,9 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
 
   const { userAgent, setUserAgent } = useUserAgent();
   const [userAgentInput, setUserAgentInput] = useState(userAgent);
+  const [pendingBatchesInfo, setPendingBatchesInfo] = useState<{
+    [key: string]: number;
+  }>({});
   /**
    * Confirm Clear Database Dialog
    */
@@ -48,6 +53,12 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
     value: deleteReadChaptersDialog,
     setTrue: showDeleteReadChaptersDialog,
     setFalse: hideDeleteReadChaptersDialog,
+  } = useBoolean();
+
+  const {
+    value: clearUnreadUndownloadedDialog,
+    setTrue: showClearUnreadUndownloadedDialog,
+    setFalse: hideClearUnreadUndownloadedDialog,
   } = useBoolean();
 
   const {
@@ -67,6 +78,58 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
     setTrue: showClearNotesDialog,
     setFalse: hideClearNotesDialog,
   } = useBoolean();
+
+  const {
+    value: clearPersistentQueueDialog,
+    setTrue: showClearPersistentQueueDialog,
+    setFalse: hideClearPersistentQueueDialog,
+  } = useBoolean();
+
+  const handleShowClearPersistentQueueDialog = () => {
+    // Get pending batches info before showing dialog
+    const batchesInfo = dbWriteQueue.getPendingBatchesInfo();
+    setPendingBatchesInfo(batchesInfo);
+    showClearPersistentQueueDialog();
+  };
+
+  const handleClearPersistentQueue = async () => {
+    try {
+      const count = await dbWriteQueue.clearPersistentQueue();
+      if (count > 0) {
+        showToast(
+          getString(
+            'advancedSettingsScreen.clearPersistentQueueMessage',
+          ).replace('%{count}', count.toString()),
+        );
+      } else {
+        showToast(getString('advancedSettingsScreen.clearPersistentQueueNone'));
+      }
+      hideClearPersistentQueueDialog();
+      setPendingBatchesInfo({});
+    } catch (error) {
+      showToast('Failed to clear persistent queue');
+      hideClearPersistentQueueDialog();
+    }
+  };
+
+  const generateBatchesInfoMessage = () => {
+    const fileCount = Object.keys(pendingBatchesInfo).length;
+    if (fileCount === 0) {
+      return getString('advancedSettingsScreen.clearPersistentQueueWarning');
+    }
+
+    let message = 'Pending batches in memory:\n';
+    for (const [batchKey, count] of Object.entries(pendingBatchesInfo)) {
+      const taskType = batchKey
+        .replace('batch_', '')
+        .replace(/_/g, ' ')
+        .toLowerCase();
+      message += `• ${taskType}: ${count} items\n`;
+    }
+    message +=
+      '\n' + getString('advancedSettingsScreen.clearPersistentQueueWarning');
+    return message;
+  };
 
   return (
     <SafeAreaView excludeTop>
@@ -107,9 +170,23 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
           theme={theme}
         />
         <List.Item
+          title="Clear unread and undownloaded chapters"
+          description="Deletes chapters that are not read and not downloaded from the database."
+          onPress={showClearUnreadUndownloadedDialog}
+          theme={theme}
+        />
+        <List.Item
           title={getString('advancedSettingsScreen.clearAllNotes')}
           description={getString('advancedSettingsScreen.clearAllNotesDesc')}
           onPress={showClearNotesDialog}
+          theme={theme}
+        />
+        <List.Item
+          title={getString('advancedSettingsScreen.clearPersistentQueue')}
+          description={getString(
+            'advancedSettingsScreen.clearPersistentQueueDesc',
+          )}
+          onPress={handleShowClearPersistentQueueDialog}
           theme={theme}
         />
         <List.Item
@@ -132,6 +209,13 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
           visible={deleteReadChaptersDialog}
           onSubmit={deleteReadChaptersFromDb}
           onDismiss={hideDeleteReadChaptersDialog}
+          theme={theme}
+        />
+        <ConfirmationDialog
+          message="Are you sure you want to delete all unread and undownloaded chapters?"
+          visible={clearUnreadUndownloadedDialog}
+          onSubmit={clearUnreadUndownloadedChapters}
+          onDismiss={hideClearUnreadUndownloadedDialog}
           theme={theme}
         />
         <ConfirmationDialog
@@ -175,6 +259,13 @@ const AdvancedSettings = ({ navigation }: AdvancedSettingsScreenProps) => {
             hideClearNotesDialog();
           }}
           onDismiss={hideClearNotesDialog}
+          theme={theme}
+        />
+        <ConfirmationDialog
+          message={generateBatchesInfoMessage()}
+          visible={clearPersistentQueueDialog}
+          onSubmit={handleClearPersistentQueue}
+          onDismiss={hideClearPersistentQueueDialog}
           theme={theme}
         />
 

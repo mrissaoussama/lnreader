@@ -169,3 +169,33 @@ td {
   display: block;
   width: 100%;
 }
+
+#Selection-Menu {
+  position: absolute;
+  display: none;
+  background-color: var(--theme-surface);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  z-index: 10000;
+  flex-direction: row;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--theme-outline);
+}
+
+#Selection-Menu.show {
+  display: flex;
+}
+
+.selection-menu-item {
+  padding: 8px 12px;
+  color: var(--theme-onSurface);
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  border-radius: 4px;
+}
+
+.selection-menu-item:active {
+  background-color: var(--theme-surfaceVariant);
+}

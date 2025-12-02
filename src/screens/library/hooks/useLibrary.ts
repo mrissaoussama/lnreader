@@ -1,4 +1,5 @@
 import { useCallback, useState, useMemo, useEffect } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { getCategoriesFromDb } from '@database/queries/CategoryQueries';
 import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
@@ -51,17 +52,6 @@ export const useLibrary = (
   const [categories, setCategories] = useState<ExtendedCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const refreshCategories = useCallback(async () => {
-    const dbCategories = getCategoriesFromDb();
-
-    const res = dbCategories.map(c => ({
-      ...c,
-      novelIds: (c.novelIds ?? '').split(',').map(Number),
-    }));
-
-    setCategories(res);
-  }, []);
-
   const getLibrary = useCallback(async () => {
     setIsLoading(true);
 
@@ -99,13 +89,33 @@ export const useLibrary = (
     libraryLoadLimit,
   ]);
 
+  const refreshCategories = useCallback(async () => {
+    const dbCategories = getCategoriesFromDb();
+
+    const res = dbCategories.map(c => ({
+      ...c,
+      novelIds: (c.novelIds ?? '').split(',').map(Number),
+    }));
+
+    setCategories(res);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      getLibrary();
+    }, [getLibrary]),
+  );
+
   // Only observe UPDATE_LIBRARY task to refresh library, not all tasks
   useEffect(() => {
     const unsubscribe = ServiceManager.manager.observe(
       'UPDATE_LIBRARY',
       task => {
-        if (task && !task.meta.isRunning && task.meta.progress === 1) {
-          // Task completed, refresh library
+        // Only refresh when task is completely removed from queue (undefined)
+        // Previously this would trigger when task.meta.isRunning was false,
+        // which happened BEFORE the task was removed, causing race conditions
+        if (!task) {
+          // Task completed and removed, refresh library
           getLibrary();
         }
       },
@@ -118,7 +128,8 @@ export const useLibrary = (
   // This avoids refreshing during download progress updates
   useEffect(() => {
     const unsubscribe = ServiceManager.manager.observe('MASS_IMPORT', task => {
-      if (task && !task.meta.isRunning && task.meta.progress === 1) {
+      // Only refresh when task is completely removed from queue (undefined)
+      if (!task) {
         // Mass import completed, refresh library
         getLibrary();
       }
@@ -127,59 +138,26 @@ export const useLibrary = (
     return unsubscribe;
   }, [getLibrary]);
 
-  // Removed useFocusEffect - it was causing library to refresh on every focus event
-  // Library will refresh through the above observers for UPDATE_LIBRARY and MASS_IMPORT only
-
   const novelInLibrary = useCallback(
     (pluginId: string, novelPath: string) => {
-      const { normalizePath } = require('@utils/urlUtils');
-      const normalized = normalizePath(novelPath || '');
-      return library?.some(novel => {
-        if (novel.pluginId !== pluginId) return false;
-        const np = normalizePath(novel.path || '');
-        return np === normalized;
-      });
+      // Import the database query function
+      const { getNovelByPath } = require('@database/queries/NovelQueries');
+
+      // Check database directly instead of just in-memory array
+      const novel = getNovelByPath(novelPath, pluginId);
+
+      // Return true if novel exists in database AND has inLibrary=1
+      return novel && novel.inLibrary === 1;
     },
-    [library],
+    [], // Remove library dependency since we're checking database directly
   );
 
   const switchNovelToLibrary = useCallback(
     async (novelPath: string, pluginId: string) => {
       await switchNovelToLibraryQuery(novelPath, pluginId);
-
-      // Get hidden plugins from MMKV
-      let hiddenPlugins: string[] = [];
-      try {
-        hiddenPlugins = JSON.parse(
-          MMKVStorage.getString('LIBRARY_HIDDEN_PLUGINS') || '[]',
-        );
-      } catch {}
-
-      // Important to get correct chapters count
-      // Count is set by sql trigger
-      refreshCategories();
-      const novels = getLibraryNovelsFromDb(
-        sortOrder,
-        filter,
-        searchText,
-        downloadedOnlyMode,
-        libraryLoadLimit,
-        undefined,
-        undefined,
-        undefined,
-        hiddenPlugins,
-      );
-
-      setLibrary(novels);
+      getLibrary();
     },
-    [
-      downloadedOnlyMode,
-      filter,
-      refreshCategories,
-      searchText,
-      sortOrder,
-      libraryLoadLimit,
-    ],
+    [getLibrary],
   );
 
   return {
@@ -200,12 +178,16 @@ export const useLibraryNovels = () => {
 
   const getLibrary = useCallback(async () => {
     const novels = getLibraryNovelsFromDb();
-    setLibrary(novels);
+    // Create completely new array with new object references to force React re-render
+    const freshLibrary = novels.map(n => ({ ...n }));
+    setLibrary(freshLibrary);
   }, []);
 
-  useEffect(() => {
-    getLibrary();
-  }, [getLibrary]);
+  useFocusEffect(
+    useCallback(() => {
+      getLibrary();
+    }, [getLibrary]),
+  );
 
   return {
     library,

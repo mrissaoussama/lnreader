@@ -1,6 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as Notifications from 'expo-notifications';
 import BackgroundService from 'react-native-background-actions';
+import { InteractionManager, AppState, AppStateStatus } from 'react-native';
 
 import { getPlugin } from '@plugins/pluginManager';
 import { restoreLibrary } from '@database/queries/NovelQueries';
@@ -8,19 +9,55 @@ import { getLibraryNovelsFromDb } from '@database/queries/LibraryQueries';
 import { showToast } from '@utils/showToast';
 import dayjs from 'dayjs';
 import { NovelInfo } from '@database/types';
-import { sleep } from '@utils/sleep';
 import { getString } from '@strings/translations';
 import * as FileSystem from 'expo-file-system';
 
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+const isActivityUnavailable = (e: any) =>
+  typeof e?.message === 'string' &&
+  e.message.toLowerCase().includes('current activity is no longer available');
+const runAfterUISettles = async () => {
+  await new Promise<void>(resolve =>
+    InteractionManager.runAfterInteractions(() => resolve()),
+  );
+  if (AppState.currentState !== 'active') {
+    await new Promise<void>(resolve => {
+      const sub = AppState.addEventListener(
+        'change',
+        (state: AppStateStatus) => {
+          if (state === 'active') {
+            // @ts-ignore support both RN APIs
+            sub?.remove?.();
+            resolve();
+          }
+        },
+      );
+    });
+  }
+  await delay(0);
+};
+
 export const createBackup = async () => {
   try {
+    await runAfterUISettles();
     const novels = getLibraryNovelsFromDb();
 
     const datetime = dayjs().format('YYYY-MM-DD_HH_mm');
     const fileName = 'lnreader_backup_' + datetime + '.json';
     const fileContent = JSON.stringify(novels);
-    const permissions =
-      await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    let permissions;
+    try {
+      permissions =
+        await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    } catch (e: any) {
+      if (isActivityUnavailable(e)) {
+        await delay(350);
+        permissions =
+          await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      } else {
+        throw e;
+      }
+    }
 
     if (!permissions.granted) {
       showToast(getString('backupScreen.failed'));
@@ -58,9 +95,22 @@ interface TaskData {
 
 export const restoreBackup = async () => {
   try {
-    const backup = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-    });
+    await runAfterUISettles();
+    const backup = await (async () => {
+      try {
+        return await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+        });
+      } catch (e: any) {
+        if (isActivityUnavailable(e)) {
+          await delay(350);
+          return await DocumentPicker.getDocumentAsync({
+            copyToCacheDirectory: true,
+          });
+        }
+        throw e;
+      }
+    })();
     let novelsString = '';
 
     if (backup.assets && backup.assets[0]) {
@@ -107,7 +157,7 @@ export const restoreBackup = async () => {
               nextNovelIndex in novels &&
               novels[nextNovelIndex].pluginId === novels[i].pluginId
             ) {
-              await sleep(taskData?.delay || 0);
+              await delay(taskData?.delay || 0);
             }
           }
         } catch (e) {
@@ -137,5 +187,7 @@ export const restoreBackup = async () => {
     }
   } catch (error: any) {
     showToast(error.message);
+  } finally {
+    BackgroundService.stop();
   }
 };

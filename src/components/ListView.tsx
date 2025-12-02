@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, View, Text, Pressable, Image } from 'react-native';
 
 import { coverPlaceholderColor } from '../theme/colors';
@@ -69,7 +69,7 @@ const ListView = ({
   );
 };
 
-export default ListView;
+export default memo(ListView);
 
 const styles = StyleSheet.create({
   badgeContainer: {

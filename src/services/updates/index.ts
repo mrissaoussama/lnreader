@@ -12,16 +12,50 @@ import { LAST_UPDATE_TIME } from '@hooks/persisted/useUpdates';
 import dayjs from 'dayjs';
 import { APP_SETTINGS, AppSettings } from '@hooks/persisted/useSettings';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
+import { ErrorLogger } from '@utils/ErrorLogger';
 
 const SKIP_UPDATE_THRESHOLD_KEY = 'SKIP_UPDATE_THRESHOLD';
+
+// Simple retry for operations with exponential backoff
+const simpleRetry = async <T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+): Promise<T> => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries - 1;
+      // Retry on network errors or DB locks
+      const shouldRetry =
+        error.message?.includes('SQLITE_BUSY') ||
+        error.message?.includes('database is locked') ||
+        error.message?.includes('SQLITE_LOCKED') ||
+        error.code === 'SQLITE_BUSY' ||
+        error.code === 'SQLITE_LOCKED' ||
+        error.message?.includes('Network request failed') ||
+        error.message?.includes('timeout') ||
+        error.message?.includes('socket hang up');
+
+      if (shouldRetry && !isLastAttempt) {
+        const baseDelay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        const jitter = Math.random() * baseDelay * 0.5;
+        await sleep(baseDelay + jitter);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Operation failed after retries');
+};
 
 const shouldSkipNovel = (
   novel: LibraryNovelInfo,
   threshold: string,
 ): boolean => {
-  if (threshold === 'off' || !novel.lastUpdate) return false;
+  if (threshold === 'off' || !novel.lastUpdatedAt) return false;
 
-  const lastUpdate = dayjs(novel.lastUpdate);
+  const lastUpdate = dayjs(novel.lastUpdatedAt);
   const now = dayjs();
 
   switch (threshold) {
@@ -48,6 +82,7 @@ const updateLibrary = async (
     transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
   ) => void,
   isCancelled?: () => boolean,
+  isPaused?: () => boolean,
 ) => {
   setMeta(meta => ({
     ...meta,
@@ -60,6 +95,12 @@ const updateLibrary = async (
     return;
   }
 
+  // Wait if paused at start
+  while (isPaused?.()) {
+    if (isCancelled?.()) return;
+    await sleep(1000);
+  }
+
   const { downloadNewChapters, refreshNovelMetadata, onlyUpdateOngoingNovels } =
     getMMKVObject<AppSettings>(APP_SETTINGS) || {};
   const options: UpdateNovelOptions = {
@@ -70,14 +111,9 @@ const updateLibrary = async (
   const skipThreshold =
     MMKVStorage.getString(SKIP_UPDATE_THRESHOLD_KEY) || 'off';
 
-  // Scheduler settings
-  const maxSimultaneousRaw =
-    MMKVStorage.getNumber('UPDATE_MAX_SIMULTANEOUS') ?? 0; // 0 = unlimited
-  const maxSimultaneous = Math.max(0, Number(maxSimultaneousRaw) || 0);
-  const maxPerPluginRaw = MMKVStorage.getNumber('UPDATE_MAX_PER_PLUGIN') || 0; // 0 = unlimited
-  const maxPerPlugin = Math.max(0, Number(maxPerPluginRaw) || 0);
-  const delayBetweenSamePlugin =
-    MMKVStorage.getNumber('UPDATE_DELAY_SAME_PLUGIN_MS') || 0;
+  const pausedPlugins = new Set(
+    JSON.parse(MMKVStorage.getString('DOWNLOAD_PAUSED_PLUGINS') || '[]'),
+  );
 
   let libraryNovels: LibraryNovelInfo[] = [];
   if (categoryId) {
@@ -106,11 +142,23 @@ const updateLibrary = async (
 
   if (total === 0) {
     showToast("There's no novel to be updated");
+
     setMeta(meta => ({ ...meta, progress: 1, isRunning: false }));
     return;
   }
 
   MMKVStorage.set(LAST_UPDATE_TIME, dayjs().format('YYYY-MM-DD HH:mm:ss'));
+
+  // Scheduler settings - ignore limits if only 1 novel
+  const maxSimultaneousRaw =
+    MMKVStorage.getNumber('UPDATE_MAX_SIMULTANEOUS') ?? 0; // 0 = unlimited
+  const maxSimultaneous =
+    total === 1 ? 0 : Math.max(0, Number(maxSimultaneousRaw) || 0);
+  const maxPerPluginRaw = MMKVStorage.getNumber('UPDATE_MAX_PER_PLUGIN') || 0; // 0 = unlimited
+  const maxPerPlugin =
+    total === 1 ? 0 : Math.max(0, Number(maxPerPluginRaw) || 0);
+  const delayBetweenSamePlugin =
+    total === 1 ? 0 : MMKVStorage.getNumber('UPDATE_DELAY_SAME_PLUGIN_MS') || 0; // Ignore delay if only 1 novel
 
   // Concurrency scheduler state
   const running = new Set<number>(); // novel ids
@@ -118,9 +166,11 @@ const updateLibrary = async (
   const pluginRunningCount = new Map<string, number>();
   const pluginLastStart = new Map<string, number>();
   let completed = 0;
+  let lastProgressUpdate = 0; // Track last progress update time to debounce
 
   const canStart = (novel: LibraryNovelInfo) => {
     if (started.has(novel.id)) return false;
+    if (pausedPlugins.has(novel.pluginId)) return false;
     // Per-plugin cap
     if (maxPerPlugin > 0) {
       const c = pluginRunningCount.get(novel.pluginId) || 0;
@@ -144,16 +194,21 @@ const updateLibrary = async (
     );
     pluginLastStart.set(novel.pluginId, Date.now());
 
-    // Update progress text to show the novel being started
-    setMeta(meta => ({
-      ...meta,
-      progressText: novel.name,
-    }));
-
     try {
-      await updateNovel(novel.pluginId, novel.path, novel.id, options);
+      // Use simpleRetry for robustness against network/DB glitches
+      await simpleRetry(() =>
+        updateNovel(novel.pluginId, novel.path, novel.id, options),
+      );
     } catch (error: any) {
-      showToast(novel.name + ': ' + (error?.message || String(error)));
+      // Log error instead of showing toast
+      ErrorLogger.log({
+        timestamp: new Date().toISOString(),
+        pluginId: novel.pluginId,
+        novelName: novel.name,
+        novelId: novel.id,
+        error: error?.message || String(error),
+        taskType: 'UPDATE_LIBRARY',
+      });
     } finally {
       // Finish
       running.delete(novel.id);
@@ -162,49 +217,81 @@ const updateLibrary = async (
         Math.max(0, (pluginRunningCount.get(novel.pluginId) || 1) - 1),
       );
       completed += 1;
-      // Update progress
-      setMeta(meta => ({
-        ...meta,
-        progress: completed / total,
-        progressText: `${completed}/${total} novels`,
-      }));
+
+      // Debounce progress updates to reduce UI overhead (update every 500ms max)
+      const now = Date.now();
+      if (now - lastProgressUpdate > 500 || completed === total) {
+        lastProgressUpdate = now;
+        setMeta(meta => ({
+          ...meta,
+          progress: completed / total,
+          progressText: `${completed}/${total} novels`,
+        }));
+      }
     }
   };
 
-  // Main scheduling loop
   while (completed < total) {
     if (isCancelled?.()) {
-      // Stop launching new tasks
       break;
     }
 
-    const globalCap = maxSimultaneous > 0 ? maxSimultaneous : total;
-    const availableSlots = Math.max(0, globalCap - running.size);
+    if (isPaused?.()) {
+      await sleep(1000);
+      continue;
+    }
 
-    if (availableSlots > 0) {
-      let startedCount = 0;
-      for (const novel of novelsToUpdate) {
-        if (startedCount >= availableSlots) break;
-        if (running.has(novel.id) || started.has(novel.id)) continue;
-        if (!canStart(novel)) continue;
-        // Fire and forget
-        startOne(novel);
-        startedCount++;
+    const globalCap = maxSimultaneous > 0 ? maxSimultaneous : total;
+    let startedSomething = false;
+
+    // Check if we can start more updates
+    while (running.size < globalCap) {
+      const novelToStart = novelsToUpdate.find(novel => canStart(novel));
+
+      if (novelToStart) {
+        // Fire and forget, the function handles its own completion status
+        startOne(novelToStart);
+        startedSomething = true;
+      } else {
+        // No more novels can start right now (e.g. due to plugin limits)
+        break;
       }
     }
 
-    if (completed >= total) break;
-
-    // Small tick; also lets per-plugin delay windows elapse
-    await sleep(50);
+    // CRITICAL: More aggressive yielding to prevent ANR
+    if (startedSomething) {
+      // If we started something, yield briefly to let event loop turn
+      await sleep(10);
+    } else {
+      // If we couldn't start anything, wait a bit longer to avoid busy loop
+      // Add jitter to prevent thundering herd
+      await sleep(100 + Math.random() * 50);
+    }
   }
 
-  // If cancelled we exit promptly without waiting for in-flight updates to finish
+  while (running.size > 0) {
+    if (isCancelled?.()) {
+      break;
+    }
+    await sleep(100);
+  }
+
+  // CRITICAL: Force final progress update to ensure UI shows completion
   setMeta(meta => ({
     ...meta,
-    progress: total > 0 ? completed / total : 1,
-    isRunning: false,
+    progress: completed / total,
     progressText: `${completed}/${total} novels`,
+  }));
+
+  // Mark task as complete - show final summary toast
+  const finalMessage = `Update completed: ${completed}/${total} novels`;
+  showToast(finalMessage);
+
+  setMeta(meta => ({
+    ...meta,
+    progress: 1,
+    isRunning: false,
+    progressText: finalMessage,
   }));
 };
 

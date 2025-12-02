@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -48,6 +48,9 @@ const MainNavigator = () => {
   const { refreshPlugins } = usePlugins();
   const [isOnboarded] = useMMKVBoolean('IS_ONBOARDED');
 
+  const didScheduleUpdateOnLaunch = useRef(false);
+  const didRefreshPlugins = useRef(false);
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       setStatusBarColor(theme);
@@ -60,14 +63,19 @@ const MainNavigator = () => {
   }, [theme]);
 
   useEffect(() => {
-    if (updateLibraryOnLaunch) {
+    if (isOnboarded && !didRefreshPlugins.current) {
+      didRefreshPlugins.current = true;
+      // Allow app time to initialize database before refreshing plugins
+      setTimeout(() => refreshPlugins(), 0);
+    }
+  }, [isOnboarded, refreshPlugins]);
+
+  useEffect(() => {
+    if (updateLibraryOnLaunch && !didScheduleUpdateOnLaunch.current) {
+      didScheduleUpdateOnLaunch.current = true;
       ServiceManager.manager.addTask({ name: 'UPDATE_LIBRARY' });
     }
-    if (isOnboarded) {
-      // hack this helps app has enough time to initialize database;
-      refreshPlugins();
-    }
-  }, [isOnboarded, refreshPlugins, updateLibraryOnLaunch]);
+  }, [updateLibraryOnLaunch]);
 
   const { isNewVersion, latestRelease } = useGithubUpdateChecker();
 

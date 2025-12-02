@@ -1,10 +1,18 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
-import { NativeEventEmitter, NativeModules, StatusBar } from 'react-native';
+import {
+  NativeEventEmitter,
+  NativeModules,
+  StatusBar,
+  Linking,
+  DeviceEventEmitter,
+} from 'react-native';
 import WebView from 'react-native-webview';
 import color from 'color';
+import * as Clipboard from 'expo-clipboard';
 
 import { useTheme } from '@hooks/persisted';
 import { getString } from '@strings/translations';
+import { showToast } from '@utils/showToast';
 
 import { getPlugin } from '@plugins/pluginManager';
 import { MMKVStorage, getMMKVObject } from '@utils/mmkv/mmkv';
@@ -17,13 +25,15 @@ import {
   initialChapterReaderSettings,
 } from '@hooks/persisted/useSettings';
 import { getBatteryLevelSync } from 'react-native-device-info';
-import * as Speech from 'expo-speech';
-import { PLUGIN_STORAGE } from '@utils/Storages';
 import { useChapterContext } from '../ChapterContext';
+import { StorageManager } from '@utils/StorageManager';
+import NativeFile from '@specs/NativeFile';
+import { TTSService } from '@services/TTS/TTSService';
+import { createScrollJS } from '../utils/scrollUtils';
 
 type WebViewPostEvent = {
   type: string;
-  data?: { [key: string]: string | number };
+  data?: { [key: string]: string | number } | any;
 };
 
 type WebViewReaderProps = {
@@ -77,9 +87,58 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
   );
   const batteryLevel = useMemo(() => getBatteryLevelSync(), []);
   const plugin = getPlugin(novel?.pluginId);
-  const pluginCustomJS = `file://${PLUGIN_STORAGE}/${plugin?.id}/custom.js`;
-  const pluginCustomCSS = `file://${PLUGIN_STORAGE}/${plugin?.id}/custom.css`;
+  // Resolve plugin storage at runtime; fallback to internal path if SAF content URI
+  let pluginStorage = StorageManager.getPluginStorage();
+  if (pluginStorage.startsWith('content://')) {
+    pluginStorage = `${
+      NativeFile.getConstants().ExternalDirectoryPath
+    }/Plugins`;
+  }
+  const pluginCustomJS = `file://${pluginStorage}/${plugin?.id}/custom.js`;
+  const pluginCustomCSS = `file://${pluginStorage}/${plugin?.id}/custom.css`;
   const nextChapterScreenVisible = useRef<boolean>(false);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      TTSService.EVENT_SENTENCE_CHANGED,
+      ({ text }) => {
+        if (!text) {
+          return;
+        }
+        const safeText = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            window.getSelection().removeAllRanges();
+            window.find('${safeText}', false, false, true, false, false, false);
+          })();
+        `);
+      },
+    );
+    return () => subscription.remove();
+  }, [webViewRef]);
+
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        createScrollJS(
+          chapterGeneralSettings.autoScroll,
+          chapterGeneralSettings.autoScrollInterval,
+          chapterGeneralSettings.pauseAutoscrollOnTap,
+          chapterGeneralSettings.progressBarPosition,
+          chapterGeneralSettings.showScrollPercentage,
+          theme.primary,
+        ),
+      );
+    }
+  }, [
+    chapterGeneralSettings.autoScroll,
+    chapterGeneralSettings.autoScrollInterval,
+    chapterGeneralSettings.pauseAutoscrollOnTap,
+    chapterGeneralSettings.progressBarPosition,
+    chapterGeneralSettings.showScrollPercentage,
+    theme.primary,
+    webViewRef,
+  ]);
 
   useEffect(() => {
     const mmkvListener = MMKVStorage.addOnValueChangedListener(key => {
@@ -143,21 +202,48 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({ onPress }) => {
             }
             break;
           case 'speak':
-            if (event.data && typeof event.data === 'string') {
-              Speech.speak(event.data, {
-                onDone() {
-                  webViewRef.current?.injectJavaScript('tts.next?.()');
-                },
+            if (!TTSService.isSpeaking) {
+              TTSService.start(chapter, html, {
                 voice: readerSettings.tts?.voice?.identifier,
-                pitch: readerSettings.tts?.pitch || 1,
                 rate: readerSettings.tts?.rate || 1,
+                pitch: readerSettings.tts?.pitch || 1,
               });
-            } else {
-              webViewRef.current?.injectJavaScript('tts.next?.()');
+            } else if (TTSService.isPaused) {
+              TTSService.resume();
             }
             break;
           case 'stop-speak':
-            Speech.stop();
+            if (TTSService.isSpeaking) {
+              TTSService.pause();
+            }
+            break;
+          case 'selection':
+            if (event.data) {
+              const { text, action } = event.data as {
+                text: string;
+                action: string;
+              };
+              switch (action) {
+                case 'copy':
+                  Clipboard.setStringAsync(text);
+                  showToast(getString('common.copiedToClipboard'));
+                  break;
+                case 'translate':
+                  Linking.openURL(
+                    `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(
+                      text,
+                    )}&op=translate`,
+                  );
+                  break;
+                case 'search':
+                  Linking.openURL(
+                    `https://www.google.com/search?q=${encodeURIComponent(
+                      text,
+                    )}`,
+                  );
+                  break;
+              }
+            }
             break;
         }
       }}

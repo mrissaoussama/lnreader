@@ -41,7 +41,7 @@ export const extractPathFromUrl = (
 };
 
 /**
- * Removes any leading and trailing slashes from a URL path
+ * Removes any leading and trailing slashes from a URL path and handles encoding issues
  * @param path - The URL path
  * @returns The normalized path
  *
@@ -54,5 +54,27 @@ export const normalizePath = (path: string): string => {
   if (!path) {
     return '';
   }
-  return path.replace(/^\/|\/$/g, '');
+
+  // Handle URL encoding/decoding inconsistencies
+  let normalizedPath = path;
+  try {
+    // If path is URL encoded, decode it
+    if (normalizedPath.includes('%')) {
+      normalizedPath = decodeURIComponent(normalizedPath);
+    }
+  } catch (e) {
+    // If decoding fails, use original path
+  }
+
+  // Remove leading and trailing slashes
+  normalizedPath = normalizedPath.replace(/^\/|\/$/g, '');
+
+  // Normalize Unicode characters (handles different unicode representations)
+  try {
+    normalizedPath = normalizedPath.normalize('NFC');
+  } catch (e) {
+    // If normalization fails, use as is
+  }
+
+  return normalizedPath;
 };

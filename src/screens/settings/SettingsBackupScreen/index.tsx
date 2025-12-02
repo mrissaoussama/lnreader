@@ -14,17 +14,25 @@ import {
 } from '@services/backup/legacy';
 import { ScrollView } from 'react-native-gesture-handler';
 import { getString } from '@strings/translations';
-import { StyleSheet, Platform } from 'react-native';
+import {
+  StyleSheet,
+  Platform,
+  InteractionManager,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
 import ServiceManager from '@services/ServiceManager';
 import { showToast } from '@utils/showToast';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
+import { ErrorLogModal } from '@components/ErrorLogModal/ErrorLogModal';
 
 const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
   const theme = useTheme();
   const [backupMode, setBackupMode] = useState<'backup' | 'restore' | null>(
     null,
   );
+  const [errorLogVisible, setErrorLogVisible] = useState(false);
 
   const {
     value: googleDriveModalVisible,
@@ -46,8 +54,39 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
     setBackupMode('restore');
   };
 
+  // Inline helpers to ensure UI is settled and activity is available before opening native pickers
+  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const isActivityUnavailable = (e: any) =>
+    typeof e?.message === 'string' &&
+    e.message.toLowerCase().includes('current activity is no longer available');
+
+  const runAfterUISettles = async () => {
+    await new Promise<void>(resolve =>
+      InteractionManager.runAfterInteractions(() => resolve()),
+    );
+    if (AppState.currentState !== 'active') {
+      await new Promise<void>(resolve => {
+        const sub = AppState.addEventListener(
+          'change',
+          (state: AppStateStatus) => {
+            if (state === 'active') {
+              // @ts-ignore remove for both new/old RN
+              sub?.remove?.();
+              resolve();
+            }
+          },
+        );
+      });
+    }
+    await sleep(0);
+  };
+
   const handleBackupOptionsConfirm = async (options: BackupOptions) => {
-    if (backupMode === 'backup') {
+    const currentMode = backupMode;
+    // We don't close the modal here anymore.
+    // It will be closed inside the try/catch blocks after the native picker is handled.
+
+    if (currentMode === 'backup') {
       try {
         if (Platform.OS !== 'android') {
           showToast(
@@ -55,52 +94,81 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
           );
           return;
         }
-
-        const permissions =
-          await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-
-        if (!permissions || !permissions.granted || !permissions.directoryUri) {
+        await runAfterUISettles();
+        let permissions: any;
+        try {
+          permissions =
+            await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        } catch (e: any) {
+          if (isActivityUnavailable(e)) {
+            await sleep(350);
+            permissions =
+              await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          } else {
+            throw e;
+          }
+        }
+        if (!permissions || !permissions.granted) {
           showToast(
-            'Failed to open the folder picker. Please try again, or open the Files app and choose a folder when prompted.',
+            'Storage permission not granted. Please allow file access to create backups.',
           );
+          setBackupMode(null);
           return;
         }
-
+        if (!permissions.directoryUri) {
+          showToast('No backup folder was selected.');
+          setBackupMode(null);
+          return;
+        }
+        setBackupMode(null);
         ServiceManager.manager.addTask({
           name: 'LOCAL_BACKUP',
           data: { ...options, directoryUri: permissions.directoryUri },
         });
         showToast('Backup job added to queue');
       } catch (error: any) {
-        showToast(
-          `Failed to select backup location: ${
-            error?.message || String(error)
-          }`,
-        );
+        setBackupMode(null);
+        showToast(`${error?.message || String(error)}`);
       }
-    } else if (backupMode === 'restore') {
+    } else if (currentMode === 'restore') {
       try {
-        const backup = await DocumentPicker.getDocumentAsync({
-          type: 'application/zip',
-          copyToCacheDirectory: true,
-        });
-
+        await runAfterUISettles();
+        let backup: any;
+        try {
+          backup = await DocumentPicker.getDocumentAsync({
+            type: 'application/zip',
+            copyToCacheDirectory: true,
+          });
+        } catch (e: any) {
+          if (isActivityUnavailable(e)) {
+            await sleep(350);
+            backup = await DocumentPicker.getDocumentAsync({
+              type: 'application/zip',
+              copyToCacheDirectory: true,
+            });
+          } else {
+            throw e;
+          }
+        }
         if (!backup || backup.canceled === true) {
+          showToast('No backup file selected.');
+          setBackupMode(null);
           return;
         }
-
         if (!backup.assets || backup.assets.length === 0) {
-          showToast('No backup file selected');
+          showToast('No backup file selected.');
+          setBackupMode(null);
           return;
         }
-
+        setBackupMode(null);
         ServiceManager.manager.addTask({
           name: 'LOCAL_RESTORE',
           data: { ...options, backupFile: backup.assets[0] },
         });
         showToast('Restore job added to queue');
       } catch (error: any) {
-        showToast(`Failed to select backup file: ${error.message}`);
+        setBackupMode(null);
+        showToast(`${error?.message || String(error)}`);
       }
     }
   };
@@ -145,6 +213,13 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
             title={getString('backupScreen.restoreBackup')}
             description={getString('backupScreen.restoreBackupDesc')}
             onPress={handleRestoreBackup}
+            theme={theme}
+          />
+
+          <List.Item
+            title="View Restore Error Log"
+            description="View detailed errors from backup restore operations"
+            onPress={() => setErrorLogVisible(true)}
             theme={theme}
           />
 
@@ -198,6 +273,12 @@ const BackupSettings = ({ navigation }: BackupSettingsScreenProps) => {
         onDismiss={() => setBackupMode(null)}
         onConfirm={handleBackupOptionsConfirm}
         isRestore={backupMode === 'restore'}
+      />
+      <ErrorLogModal
+        visible={errorLogVisible}
+        onDismiss={() => setErrorLogVisible(false)}
+        taskType="LOCAL_RESTORE"
+        theme={theme}
       />
     </SafeAreaView>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, ScrollView } from 'react-native';
 import { Button, Dialog, Portal, TextInput } from 'react-native-paper';
 import { useTheme, useCategories } from '@hooks/persisted';
 import { getString } from '@strings/translations';
@@ -23,7 +23,6 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
   const theme = useTheme();
   const { categories } = useCategories();
   const [text, setText] = useState(initialText);
-  const [delay, setDelay] = useState('500');
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(
     null,
@@ -65,25 +64,22 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
 
   const handleImport = () => {
     const urls = preprocessUrls(text);
-    const delayMs = parseInt(delay, 10) || 500;
 
     if (urls.length > 0) {
       ServiceManager.manager.addTask({
         name: 'MASS_IMPORT',
-        data: { urls, delay: delayMs, categoryId: selectedCategoryId },
+        data: { urls, categoryId: selectedCategoryId },
       });
     }
 
     closeModal();
     setText('');
-    setDelay('500');
     setSelectedCategoryId(null);
   };
 
   const handleCancel = () => {
     closeModal();
     setText('');
-    setDelay('500');
     setSelectedCategoryId(null);
   };
 
@@ -114,31 +110,23 @@ const MassImportModal: React.FC<MassImportModalProps> = ({
               outlineColor={theme.outline}
               activeOutlineColor={theme.primary}
             />
-            <TextInput
-              value={delay}
-              onChangeText={setDelay}
-              keyboardType="numeric"
-              placeholder="500"
-              label={getString('libraryScreen.massImportModal.delayLabel')}
-              right={<TextInput.Affix text="ms" />}
-              style={styles.delayInput}
-              theme={{ colors: { ...theme } }}
-            />
             <Text style={[styles.categoryLabel, { color: theme.onSurface }]}>
               Select Category:
             </Text>
-            {categories
-              .filter(c => c.id !== 2)
-              .map(category => (
-                <Checkbox
-                  key={category.id}
-                  status={selectedCategoryId === category.id}
-                  label={category.name}
-                  onPress={() => setSelectedCategoryId(category.id)}
-                  viewStyle={styles.categoryCheckbox}
-                  theme={theme}
-                />
-              ))}
+            <ScrollView style={styles.categoryScrollView}>
+              {categories
+                .filter(c => c.id !== 2)
+                .map(category => (
+                  <Checkbox
+                    key={category.id}
+                    status={selectedCategoryId === category.id}
+                    label={category.name}
+                    onPress={() => setSelectedCategoryId(category.id)}
+                    viewStyle={styles.categoryCheckbox}
+                    theme={theme}
+                  />
+                ))}
+            </ScrollView>
           </View>
         </Dialog.ScrollArea>
         <Dialog.Actions style={styles.actions}>
@@ -196,10 +184,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingHorizontal: 16,
   },
-  delayInput: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
   categoryLabel: {
     fontSize: 16,
     fontWeight: '600',
@@ -210,6 +194,9 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexWrap: 'wrap',
+  },
+  categoryScrollView: {
+    maxHeight: 150,
   },
 });
 

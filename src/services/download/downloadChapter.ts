@@ -1,52 +1,31 @@
 import * as cheerio from 'cheerio';
-import { NOVEL_STORAGE } from '@utils/Storages';
 import { Plugin } from '@plugins/types';
 import { downloadFile } from '@plugins/helpers/fetch';
 import { getPlugin } from '@plugins/pluginManager';
 import { getString } from '@strings/translations';
 import { getChapter } from '@database/queries/ChapterQueries';
 import { getNovelById } from '@database/queries/NovelQueries';
-import { db } from '@database/db';
 import { BackgroundTaskMetadata } from '@services/ServiceManager';
 import NativeFile from '@specs/NativeFile';
-import {
-  DeviceEventEmitter,
-  Platform,
-  TurboModuleRegistry,
-} from 'react-native';
-import type { Spec as NativeDownloaderSpec } from '@specs/NativeDownloader';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { isCancelledChapter, clearCancelledChapter } from './cancelRegistry';
 import { sleep } from '@utils/sleep';
+import { dbWriteQueue } from '@database/utils/DbWriteQueue';
+import { StorageManager } from '@utils/StorageManager';
 
-async function markDownloadedWithRetry(
-  chapterId: number,
-  attempts = 3,
-): Promise<void> {
-  let lastErr: any = null;
-  for (let i = 0; i < attempts; i++) {
-    try {
+async function markChapterDownloaded(chapterId: number): Promise<void> {
+  return dbWriteQueue.enqueue(
+    async db => {
       await db.runAsync('UPDATE Chapter SET isDownloaded = 1 WHERE id = ?', [
         chapterId,
       ]);
-      return;
-    } catch (e) {
-      lastErr = e;
-      await sleep(50 * (i + 1));
-    }
-  }
-  // If all attempts failed, keep going without throwing
-  // eslint-disable-next-line no-console
-  console.error('[Downloader] Failed to mark chapter downloaded', lastErr);
+    },
+    {
+      taskType: 'DOWNLOAD',
+      persistentData: { chapterId },
+    },
+  );
 }
-
-// Acquire native downloader only on Android to avoid iOS crashes
-const NativeDownloader: NativeDownloaderSpec | null =
-  Platform.OS === 'android'
-    ? (TurboModuleRegistry.get<NativeDownloaderSpec>(
-        'NativeDownloader',
-      ) as NativeDownloaderSpec | null)
-    : null;
 
 const getPausedPlugins = (): Set<string> => {
   try {
@@ -93,29 +72,76 @@ const createChapterFolder = async (
   data: { pluginId: string; novelId: number; chapterId: number },
 ): Promise<string> => {
   const { pluginId, novelId, chapterId } = data;
-  const chapterFolder = `${path}/${pluginId}/${novelId}/${chapterId}`;
-  NativeFile.mkdir(chapterFolder);
-  const nomediaPath = chapterFolder + '/.nomedia';
-  NativeFile.writeFile(nomediaPath, ',');
-  return chapterFolder;
+
+  // Try to use the configured storage path (SD card if enabled, otherwise internal)
+  let rootPath = path;
+
+  try {
+    // Get the novel's current storage location or the default root storage
+    const novelBasePath = StorageManager.getNovelPath(novelId, pluginId);
+
+    // Extract the root path from the novel path (remove the /Novels/pluginId/novelId part)
+    const parts = novelBasePath.split('/Novels/');
+    if (parts.length > 0) {
+      rootPath = parts[0];
+    } else {
+      // Fallback to StorageManager's root storage
+      rootPath = StorageManager.getRootStorage();
+    }
+  } catch (error) {
+    rootPath = path;
+  }
+
+  const chapterFolder = `${rootPath}/Novels/${pluginId}/${novelId}/${chapterId}`;
+
+  try {
+    await NativeFile.mkdir(chapterFolder);
+    const nomediaPath = chapterFolder + '/.nomedia';
+    try {
+      await NativeFile.writeFile(nomediaPath, '');
+    } catch (error) {}
+    return chapterFolder;
+  } catch (error) {
+    // If SD card fails, fallback to internal storage
+
+    const fallbackFolder = `${
+      NativeFile.getConstants().ExternalDirectoryPath
+    }/Novels/${pluginId}/${novelId}/${chapterId}`;
+    try {
+      await NativeFile.mkdir(fallbackFolder);
+      const nomediaPath = fallbackFolder + '/.nomedia';
+      try {
+        await NativeFile.writeFile(nomediaPath, '');
+      } catch (nomediaError) {}
+
+      return fallbackFolder;
+    } catch (fallbackError) {
+      throw error; // Throw original error
+    }
+  }
 };
 
-const downloadFilesNativeOrJs = async (
+const downloadChapterImages = async (
   html: string,
   plugin: Plugin,
   novelId: number,
   chapterId: number,
-): Promise<boolean> => {
-  const folder = await createChapterFolder(NOVEL_STORAGE, {
+  setMeta?: (
+    transformer: (meta: BackgroundTaskMetadata) => BackgroundTaskMetadata,
+  ) => void,
+): Promise<void> => {
+  // Use runtime-resolved storage path
+  const folder = await createChapterFolder(StorageManager.getNovelStorage(), {
     pluginId: plugin.id,
     novelId,
     chapterId,
   });
   const $ = cheerio.load(html);
-  const imgs = $('img').toArray();
-  // collect urls and rewrite src
+  const imgs = $('img');
   const urls: string[] = [];
-  imgs.forEach((img, i) => {
+
+  // Collect urls and rewrite src
+  imgs.each((i, img) => {
     const elem = $(img);
     const url = elem.attr('src');
     if (url) {
@@ -127,48 +153,39 @@ const downloadFilesNativeOrJs = async (
   });
 
   const rewrittenHtml = $.html();
-  const headers = (plugin.imageRequestInit?.headers as any) || null;
 
-  if (urls.length > 0 && NativeDownloader) {
-    try {
-      const available = await NativeDownloader.isAvailable();
-      if (
-        available &&
-        typeof NativeDownloader.downloadChapterAssets === 'function'
-      ) {
-        await NativeDownloader.downloadChapterAssets(
-          chapterId,
-          plugin.id,
-          folder,
-          rewrittenHtml,
-          urls,
-          headers,
-        );
-        return true;
-      }
-    } catch {
-      // fall back to JS
-    }
-  }
+  // Write HTML file
+  await NativeFile.writeFile(folder + '/index.html', rewrittenHtml);
 
-  // JS fallback: write HTML and download images sequentially
-  NativeFile.writeFile(folder + '/index.html', rewrittenHtml);
+  let lastUpdate = 0;
+
+  // Download images sequentially
   for (let i = 0; i < urls.length; i++) {
-    if (isCancelledChapter(chapterId)) throw new Error('Cancelled');
-    await waitIfPaused(plugin.id, novelId, chapterId);
-    if (isCancelledChapter(chapterId)) throw new Error('Cancelled');
+    if (isCancelledChapter(chapterId)) {
+      throw new Error('Download cancelled');
+    }
+
+    if (setMeta) {
+      const now = Date.now();
+      if (now - lastUpdate > 1000 || i === 0 || i === urls.length - 1) {
+        setMeta(meta => ({
+          ...meta,
+          progress: urls.length > 0 ? (i + 1) / urls.length : undefined,
+          progressText: `${i + 1}/${urls.length}`,
+        }));
+        lastUpdate = now;
+      }
+    }
+
     try {
       await downloadFile(
         urls[i],
         `${folder}/${i}.b64.png`,
+        {},
         plugin.imageRequestInit,
       );
-    } catch (err) {
-      const elem = $(imgs[i]);
-      elem.attr('alt', String(err));
-    }
+    } catch (error) {}
   }
-  return true;
 };
 
 export const downloadChapter = async (
@@ -196,41 +213,31 @@ export const downloadChapter = async (
     throw new Error(getString('downloadScreen.pluginNotFound'));
   }
 
+  // Check if cancelled before starting
+  if (isCancelledChapter(chapter.id)) {
+    throw new Error('Download cancelled');
+  }
+
+  // Wait if paused
+  await waitIfPaused(plugin.id, novel.id, chapter.id);
+
   const chapterText = await plugin.parseChapter(chapter.path);
   if (!chapterText || !chapterText.length) {
     throw new Error(getString('downloadScreen.chapterEmptyOrScrapeError'));
   }
 
-  let removeListener: (() => void) | null = null;
-  try {
-    const sub = DeviceEventEmitter.addListener(
-      'NativeDownloaderProgress',
-      (evt: {
-        chapterId: number;
-        index: number;
-        total: number;
-        url: string;
-      }) => {
-        if (evt && evt.chapterId === chapter.id) {
-          const frac = evt.total > 0 ? (evt.index + 1) / evt.total : undefined;
-          setMeta(meta => ({
-            ...meta,
-            progress: frac,
-            progressText: `${evt.index + 1}/${evt.total}`,
-          }));
-        }
-      },
-    );
-    removeListener = () => sub.remove();
-  } catch {}
-
   clearCancelledChapter(chapter.id);
 
-  await downloadFilesNativeOrJs(chapterText, plugin, novel.id, chapter.id);
+  await downloadChapterImages(
+    chapterText,
+    plugin,
+    novel.id,
+    chapter.id,
+    setMeta,
+  );
 
-  if (removeListener) removeListener();
   try {
-    await markDownloadedWithRetry(chapter.id, 3);
+    await markChapterDownloaded(chapter.id);
   } catch {}
 
   setMeta(meta => ({ ...meta, progress: 1, isRunning: false }));

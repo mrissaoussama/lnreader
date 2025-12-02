@@ -30,6 +30,12 @@ const ConcurrentSearchesModal: React.FC<DisplayModeModalProps> = ({
         <Text style={[styles.modalHeader, { color: theme.onSurface }]}>
           {getString('browseSettingsScreen.concurrentSearches')}
         </Text>
+        <RadioButton
+          status={globalSearchConcurrency === 0}
+          onPress={() => setBrowseSettings({ globalSearchConcurrency: 0 })}
+          label={getString('common.all')}
+          theme={theme}
+        />
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(concurrency => (
           <RadioButton
             key={concurrency}

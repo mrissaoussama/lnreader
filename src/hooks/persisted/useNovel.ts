@@ -10,6 +10,7 @@ import {
   getCachedNovels as _getCachedNovels,
   insertNovelAndChapters,
   addAlternativeTitle,
+  deleteNovelCover as _deleteNovelCover,
 } from '@database/queries/NovelQueries';
 import {
   bookmarkChapter as _bookmarkChapter,
@@ -20,6 +21,8 @@ import {
   markChaptersUnread as _markChaptersUnread,
   deleteChapter as _deleteChapter,
   deleteChapters as _deleteChapters,
+  deleteChaptersByCriteria as _deleteChaptersByCriteria,
+  deleteAllDownloadedChapters as _deleteAllDownloadedChapters,
   getPageChapters as _getPageChapters,
   insertChapters,
   getCustomPages,
@@ -46,21 +49,29 @@ export const NOVEL_PAGE_INDEX_PREFIX = 'NOVEL_PAGE_INDEX_PREFIX';
 export const NOVEL_SETTINSG_PREFIX = 'NOVEL_SETTINGS';
 export const LAST_READ_PREFIX = 'LAST_READ_PREFIX';
 
-const defaultNovelSettings: NovelSettings = {
-  showChapterTitles: true,
-};
-const defaultPageIndex = 0;
-
 // #endregion
 // #region types
 
 type TrackedNovel = SearchResult & UserListEntry;
 
+export enum DisplayModes {
+  Title = 'Title',
+  ChapterNumber = 'ChapterNumber',
+  Both = 'Both',
+}
+
 export interface NovelSettings {
   sort?: string;
   filter?: string;
   showChapterTitles?: boolean;
+  displayMode?: DisplayModes;
 }
+
+const defaultNovelSettings: NovelSettings = {
+  showChapterTitles: true,
+  displayMode: DisplayModes.Both,
+};
+const defaultPageIndex = 0;
 
 // #endregion
 // #region definition useTrackedNovel
@@ -301,6 +312,13 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
     [novelSettings, setNovelSettings],
   );
 
+  const setDisplayMode = useCallback(
+    (mode: DisplayModes) => {
+      setNovelSettings({ ...novelSettings, displayMode: mode });
+    },
+    [novelSettings, setNovelSettings],
+  );
+
   const followNovel = useCallback(() => {
     switchNovelToLibrary(novelPath, pluginId).then(() => {
       if (novel) {
@@ -322,11 +340,30 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
         throw new Error(getString('updatesScreen.unableToGetNovel'));
       });
 
-      await insertNovelAndChapters(pluginId, sourceNovel);
-      tmpNovel = getNovelByPath(novelPath, pluginId);
+      // Retry database insert with exponential backoff to handle lock errors
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          await insertNovelAndChapters(pluginId, sourceNovel);
+          tmpNovel = getNovelByPath(novelPath, pluginId);
+          break; // Success, exit retry loop
+        } catch (error) {
+          retries--;
+          if (error.message?.includes('database is locked') && retries > 0) {
+            // Wait before retry with exponential backoff
+            await new Promise(resolve =>
+              setTimeout(resolve, (4 - retries) * 500),
+            );
+            continue;
+          } else {
+            // If not a lock error or no retries left, throw the error
+            throw error;
+          }
+        }
+      }
 
       if (!tmpNovel) {
-        return;
+        throw new Error('Failed to save novel to database after retries');
       }
     }
     setPages(calculatePages(tmpNovel));
@@ -553,6 +590,15 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
   // #endregion
   // #region refresh and delete
 
+  const deleteCover = useCallback(async () => {
+    if (novel) {
+      await _deleteNovelCover(novel);
+      // Refetch novel data to ensure UI updates properly
+      await getNovel();
+      showToast(getString('common.deleted'));
+    }
+  }, [novel, getNovel]);
+
   const deleteChapter = useCallback(
     (_chapter: ChapterInfo) => {
       if (novel) {
@@ -601,6 +647,58 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
     [novel, mutateChapters],
   );
 
+  const deleteChaptersByCriteria = useCallback(
+    (criteria: {
+      downloaded?: boolean;
+      notDownloaded?: boolean;
+      read?: boolean;
+      unread?: boolean;
+    }) => {
+      if (novel) {
+        _deleteChaptersByCriteria(novel.pluginId, novel.id, criteria).then(
+          () => {
+            showToast(getString('common.deleted'));
+            // Refresh chapters after deletion as they are removed from DB
+            refreshChapters();
+          },
+        );
+      }
+    },
+    [novel, refreshChapters],
+  );
+
+  const deleteAllDownloadedChapters = useCallback(() => {
+    if (novel) {
+      const { Alert } = require('react-native');
+      Alert.alert(
+        getString('novelScreen.bottomSheet.actions.deleteAllDownloads'),
+        getString('novelScreen.deleteMessage'),
+        [
+          {
+            text: getString('common.cancel'),
+            style: 'cancel',
+          },
+          {
+            text: getString('common.delete'),
+            style: 'destructive',
+            onPress: () => {
+              _deleteAllDownloadedChapters(novel.pluginId, novel.id).then(
+                () => {
+                  mutateChapters(chs =>
+                    chs.map(chapter => ({
+                      ...chapter,
+                      isDownloaded: false,
+                    })),
+                  );
+                },
+              );
+            },
+          },
+        ],
+      );
+    }
+  }, [novel, mutateChapters]);
+
   const refreshChapters = useCallback(() => {
     if (novel?.id && !fetching) {
       _getPageChapters(
@@ -628,13 +726,33 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
     if (novel) {
       setLoading(false);
     } else {
-      getNovel().finally(() => {
-        //? Sometimes loading state changes doesn't trigger rerender causing NovelScreen to be in endless loading state
-        setLoading(false);
-        // getNovel();
-      });
+      setLoading(true);
+      getNovel()
+        .catch(error => {
+          // Handle database errors gracefully
+          showToast('Failed to load novel data');
+
+          // Try to fetch from network again if database insert failed
+          if (
+            error.message?.includes('database') ||
+            error.message?.includes('lock')
+          ) {
+            // Set a basic novel object to prevent infinite loading
+            const basicNovel: Partial<NovelInfo> = {
+              path: novelPath,
+              pluginId: pluginId,
+              name: 'Loading...',
+              inLibrary: 0,
+            };
+            setNovel(basicNovel as NovelInfo);
+          }
+        })
+        .finally(() => {
+          // Always resolve loading state to prevent infinite loading
+          setLoading(false);
+        });
     }
-  }, [getNovel, novel]);
+  }, [getNovel, novel, novelPath, pluginId]);
 
   useEffect(() => {
     if (novel === undefined) return;
@@ -682,11 +800,15 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
       markPreviousChaptersUnread,
       markChaptersUnread,
       setShowChapterTitles,
+      setDisplayMode,
       refreshChapters,
       updateChapter,
       updateChapterProgress,
       deleteChapter,
       deleteChapters,
+      deleteChaptersByCriteria,
+      deleteCover,
+      deleteAllDownloadedChapters,
     }),
     [
       loading,
@@ -712,11 +834,15 @@ export const useNovel = (novelOrPath: string | NovelInfo, pluginId: string) => {
       markPreviousChaptersUnread,
       markChaptersUnread,
       setShowChapterTitles,
+      setDisplayMode,
       refreshChapters,
       updateChapter,
       updateChapterProgress,
       deleteChapter,
       deleteChapters,
+      deleteChaptersByCriteria,
+      deleteCover,
+      deleteAllDownloadedChapters,
     ],
   );
 };

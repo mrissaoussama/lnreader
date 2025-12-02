@@ -11,6 +11,7 @@ export const BROWSE_SETTINGS = 'BROWSE_SETTINGS';
 export const LIBRARY_SETTINGS = 'LIBRARY_SETTINGS';
 export const CHAPTER_GENERAL_SETTINGS = 'CHAPTER_GENERAL_SETTINGS';
 export const CHAPTER_READER_SETTINGS = 'CHAPTER_READER_SETTINGS';
+export const NETWORK_SETTINGS = 'NETWORK_SETTINGS';
 
 export interface AppSettings {
   /**
@@ -59,14 +60,11 @@ export interface AppSettings {
 
   autoSyncTracker: boolean;
   autoSyncChapterThreshold: number;
-}
 
-export interface BrowseSettings {
-  showMyAnimeList: boolean;
-  showAniList: boolean;
-  globalSearchConcurrency?: number;
-  hideInLibraryItems?: boolean;
-  enableAdvancedFilters?: boolean;
+  /**
+   * Novel Matching settings
+   */
+
   novelMatching?: {
     enabled?: boolean;
     showBadges?: boolean;
@@ -83,18 +81,33 @@ export interface BrowseSettings {
   };
 }
 
+export interface BrowseSettings {
+  showMyAnimeList: boolean;
+  showAniList: boolean;
+  globalSearchConcurrency?: number;
+  hideInLibraryItems?: boolean;
+  enableAdvancedFilters?: boolean;
+  disableInfiniteScroll?: boolean;
+  displayMode?: DisplayModes;
+  novelsPerRow?: number;
+  confirmPluginLeave?: boolean;
+}
+
 export interface LibrarySettings {
   sortOrder?: LibrarySortOrder;
   filter?: LibraryFilter;
   showDownloadBadges?: boolean;
   showUnreadBadges?: boolean;
   showNotesBadges?: boolean;
+  showMatchingBadges?: boolean;
   showNumberOfNovels?: boolean;
+  showCovers?: boolean;
   displayMode?: DisplayModes;
   novelsPerRow?: number;
   incognitoMode?: boolean;
   downloadedOnlyMode?: boolean;
   libraryLoadLimit?: number; // Number of novels to load at once in library
+  novelTitleLines?: number;
 }
 
 export interface ChapterGeneralSettings {
@@ -108,11 +121,14 @@ export interface ChapterGeneralSettings {
   autoScroll: boolean;
   autoScrollInterval: number;
   autoScrollOffset: number | null;
+  pauseAutoscrollOnTap: boolean;
   verticalSeekbar: boolean;
   removeExtraParagraphSpacing: boolean;
   bionicReading: boolean;
   tapToScroll: boolean;
   TTSEnable: boolean;
+  progressBarPosition: 'left' | 'right' | 'bottom';
+  useServiceForeground: boolean;
 }
 
 export interface ReaderTheme {
@@ -140,6 +156,21 @@ export interface ChapterReaderSettings {
   epubUseAppTheme: boolean;
   epubUseCustomCSS: boolean;
   epubUseCustomJS: boolean;
+}
+
+export interface NetworkSettings {
+  maxConcurrentTasks: number;
+  maxGlobalConcurrentTasks: number;
+  taskDelay: number;
+  randomDelayRange: { min: number; max: number };
+  pluginSettings: Record<
+    string,
+    {
+      maxConcurrentTasks?: number;
+      taskDelay?: number;
+      randomDelayRange?: { min: number; max: number };
+    }
+  >;
 }
 
 const initialAppSettings: AppSettings = {
@@ -197,12 +228,10 @@ const initialBrowseSettings: BrowseSettings = {
   globalSearchConcurrency: 3,
   hideInLibraryItems: false,
   enableAdvancedFilters: true,
-  novelMatching: {
-    enabled: false,
-    showBadges: true,
-    pluginRule: 'normalized-contains',
-    libraryRule: 'normalized-contains',
-  },
+  disableInfiniteScroll: false,
+  displayMode: DisplayModes.Comfortable,
+  novelsPerRow: 3,
+  confirmPluginLeave: false,
 };
 
 export const initialChapterGeneralSettings: ChapterGeneralSettings = {
@@ -216,11 +245,14 @@ export const initialChapterGeneralSettings: ChapterGeneralSettings = {
   autoScroll: false,
   autoScrollInterval: 10,
   autoScrollOffset: null,
+  pauseAutoscrollOnTap: true,
   verticalSeekbar: true,
   removeExtraParagraphSpacing: false,
   bionicReading: false,
   tapToScroll: false,
   TTSEnable: false,
+  progressBarPosition: 'right',
+  useServiceForeground: false,
 };
 
 export const initialChapterReaderSettings: ChapterReaderSettings = {
@@ -242,6 +274,14 @@ export const initialChapterReaderSettings: ChapterReaderSettings = {
   epubUseAppTheme: false,
   epubUseCustomCSS: false,
   epubUseCustomJS: false,
+};
+
+export const initialNetworkSettings: NetworkSettings = {
+  maxConcurrentTasks: 1,
+  maxGlobalConcurrentTasks: 3,
+  taskDelay: 1000,
+  randomDelayRange: { min: 0, max: 0 },
+  pluginSettings: {},
 };
 
 export const useAppSettings = () => {
@@ -278,9 +318,12 @@ const defaultLibrarySettings: LibrarySettings = {
   showDownloadBadges: true,
   showUnreadBadges: true,
   showNotesBadges: true,
+  showMatchingBadges: true,
+  showCovers: true,
   novelsPerRow: 3,
   sortOrder: LibrarySortOrder.DateAdded_DESC,
   libraryLoadLimit: 50, // Default to 50 novels per load
+  novelTitleLines: 2,
 };
 
 export const useLibrarySettings = () => {
@@ -346,5 +389,18 @@ export const useChapterReaderSettings = () => {
     setChapterReaderSettings,
     saveCustomReaderTheme,
     deleteCustomReaderTheme,
+  };
+};
+
+export const useNetworkSettings = () => {
+  const [networkSettings = initialNetworkSettings, setSettings] =
+    useMMKVObject<NetworkSettings>(NETWORK_SETTINGS);
+
+  const setNetworkSettings = (values: Partial<NetworkSettings>) =>
+    setSettings({ ...networkSettings, ...values });
+
+  return {
+    ...networkSettings,
+    setNetworkSettings,
   };
 };

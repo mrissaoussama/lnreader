@@ -35,31 +35,55 @@ import { defaultCover } from '@plugins/helpers/constants';
 import { getNovelById } from '@database/queries/NovelQueries';
 
 // Pause helpers - use simple storage keys without hooks to avoid stack overflow
+// Cache the paused sets to avoid repeated MMKV reads
+let cachedPausedPlugins: Set<string> | null = null;
+let cachedPausedNovels: Set<number> | null = null;
+let lastPauseCacheTime = 0;
+const PAUSE_CACHE_TTL = 500; // Cache for 500ms to reduce MMKV reads
+
 const getPausedPlugins = (): Set<string> => {
+  const now = Date.now();
+  if (cachedPausedPlugins && now - lastPauseCacheTime < PAUSE_CACHE_TTL) {
+    return new Set(cachedPausedPlugins);
+  }
   try {
-    return new Set<string>(
+    cachedPausedPlugins = new Set<string>(
       JSON.parse(MMKVStorage.getString('DOWNLOAD_PAUSED_PLUGINS') || '[]'),
     );
+    lastPauseCacheTime = now;
+    return new Set(cachedPausedPlugins);
   } catch {
+    cachedPausedPlugins = new Set();
     return new Set();
   }
 };
 
 const setPausedPlugins = (set: Set<string>) => {
+  cachedPausedPlugins = new Set(set);
+  lastPauseCacheTime = Date.now();
   MMKVStorage.set('DOWNLOAD_PAUSED_PLUGINS', JSON.stringify(Array.from(set)));
 };
 
 const getPausedNovels = (): Set<number> => {
+  const now = Date.now();
+  if (cachedPausedNovels && now - lastPauseCacheTime < PAUSE_CACHE_TTL) {
+    return new Set(cachedPausedNovels);
+  }
   try {
-    return new Set<number>(
+    cachedPausedNovels = new Set<number>(
       JSON.parse(MMKVStorage.getString('DOWNLOAD_PAUSED_NOVELS') || '[]'),
     );
+    lastPauseCacheTime = now;
+    return new Set(cachedPausedNovels);
   } catch {
+    cachedPausedNovels = new Set();
     return new Set();
   }
 };
 
 const setPausedNovels = (set: Set<number>) => {
+  cachedPausedNovels = new Set(set);
+  lastPauseCacheTime = Date.now();
   MMKVStorage.set('DOWNLOAD_PAUSED_NOVELS', JSON.stringify(Array.from(set)));
 };
 
@@ -444,7 +468,18 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
   );
 
   const otherTasks = useMemo(
-    () => taskQueue.filter(t => t.task.name !== 'DOWNLOAD_CHAPTER'),
+    () =>
+      taskQueue.filter(
+        t =>
+          t.task.name !== 'DOWNLOAD_CHAPTER' &&
+          t.task.name !== 'DOWNLOAD_NOVEL',
+      ),
+    [taskQueue],
+  );
+
+  // DOWNLOAD_NOVEL tasks shown separately in "Other" section with better labeling
+  const downloadNovelTasks = useMemo(
+    () => taskQueue.filter(t => t.task.name === 'DOWNLOAD_NOVEL'),
     [taskQueue],
   );
 
@@ -467,90 +502,94 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
 
   const pausePlugin = useCallback(
     (pluginId: string, pause: boolean) => {
-      const pluginSet = getPausedPlugins();
-      const novelSet = getPausedNovels();
+      // Offload to next frame to avoid UI freeze
+      requestAnimationFrame(() => {
+        const pluginSet = getPausedPlugins();
+        const novelSet = getPausedNovels();
 
-      if (pause) {
-        pluginSet.add(pluginId);
-        // Also pause all novels under this plugin
-        downloadTasks.forEach(task => {
-          const data = (task.task as DownloadChapterTask).data;
-          if (data.pluginId === pluginId) {
-            novelSet.add(data.novelId);
+        if (pause) {
+          pluginSet.add(pluginId);
+          // Batch collect novel IDs without looping through tasks multiple times
+          const novelIds = new Set<number>();
+          downloadTasks.forEach(task => {
+            const data = (task.task as DownloadChapterTask).data;
+            if (data.pluginId === pluginId) {
+              novelIds.add(data.novelId);
+            }
+          });
+          novelIds.forEach(id => novelSet.add(id));
+        } else {
+          pluginSet.delete(pluginId);
+          // Batch collect novel IDs
+          const novelIds = new Set<number>();
+          downloadTasks.forEach(task => {
+            const data = (task.task as DownloadChapterTask).data;
+            if (data.pluginId === pluginId) {
+              novelIds.add(data.novelId);
+            }
+          });
+          novelIds.forEach(id => novelSet.delete(id));
+
+          // Resume the service if it's not running
+          if (!ServiceManager.manager.isRunning) {
+            ServiceManager.manager.resume();
           }
-        });
-        // Native pause for matching chapters
-        ServiceManager.manager.pauseDownloads(
-          t => (t.task as DownloadChapterTask).data?.pluginId === pluginId,
-        );
-      } else {
-        pluginSet.delete(pluginId);
-        // Also unpause all novels under this plugin
-        downloadTasks.forEach(task => {
-          const data = (task.task as DownloadChapterTask).data;
-          if (data.pluginId === pluginId) {
-            novelSet.delete(data.novelId);
-          }
-        });
-        // Native resume for matching chapters
-        ServiceManager.manager.resumeDownloads(
-          t => (t.task as DownloadChapterTask).data?.pluginId === pluginId,
-        );
-        // Resume the service if it's not running
-        if (!ServiceManager.manager.isRunning) {
-          ServiceManager.manager.resume();
         }
-      }
 
-      setPausedPlugins(pluginSet);
-      setPausedNovels(novelSet);
-      setPausedPluginsState(new Set(pluginSet));
-      setPausedNovelsState(new Set(novelSet));
+        // Single batch write to MMKV
+        setPausedPlugins(pluginSet);
+        setPausedNovels(novelSet);
+        setPausedPluginsState(new Set(pluginSet));
+        setPausedNovelsState(new Set(novelSet));
+      });
     },
     [downloadTasks],
   );
 
   const pauseNovel = useCallback((novelId: number, pause: boolean) => {
-    const set = getPausedNovels();
-    if (pause) {
-      set.add(novelId);
-      ServiceManager.manager.pauseDownloads(
-        t => (t.task as DownloadChapterTask).data?.novelId === novelId,
-      );
-    } else {
-      set.delete(novelId);
-      ServiceManager.manager.resumeDownloads(
-        t => (t.task as DownloadChapterTask).data?.novelId === novelId,
-      );
-      // Resume the service if it's not running
-      if (!ServiceManager.manager.isRunning) {
-        ServiceManager.manager.resume();
+    // Offload to next frame to avoid UI freeze
+    requestAnimationFrame(() => {
+      const set = getPausedNovels();
+      if (pause) {
+        set.add(novelId);
+      } else {
+        set.delete(novelId);
+        // Resume the service if it's not running
+        if (!ServiceManager.manager.isRunning) {
+          ServiceManager.manager.resume();
+        }
       }
-    }
-    setPausedNovels(set);
-    setPausedNovelsState(new Set(set));
+      setPausedNovels(set);
+      setPausedNovelsState(new Set(set));
+    });
   }, []);
 
   const removeChapter = useCallback((chapterId: number) => {
-    try {
-      ServiceManager.manager.removeDownloadTaskByChapterId(chapterId);
-    } catch {}
+    requestAnimationFrame(() => {
+      try {
+        ServiceManager.manager.removeDownloadTaskByChapterId(chapterId);
+      } catch {}
+    });
   }, []);
 
   const removeNovel = useCallback((novelId: number) => {
-    try {
-      ServiceManager.manager.removeDownloads(
-        t => (t.task as DownloadChapterTask).data?.novelId === novelId,
-      );
-    } catch {}
+    requestAnimationFrame(() => {
+      try {
+        ServiceManager.manager.removeDownloads(
+          t => (t.task as DownloadChapterTask).data?.novelId === novelId,
+        );
+      } catch {}
+    });
   }, []);
 
   const removePlugin = useCallback((pluginId: string) => {
-    try {
-      ServiceManager.manager.removeDownloads(
-        t => (t.task as DownloadChapterTask).data?.pluginId === pluginId,
-      );
-    } catch {}
+    requestAnimationFrame(() => {
+      try {
+        ServiceManager.manager.removeDownloads(
+          t => (t.task as DownloadChapterTask).data?.pluginId === pluginId,
+        );
+      } catch {}
+    });
   }, []);
 
   const openMenu = () => setVisible(true);
@@ -623,15 +662,13 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
                 // Close menu first to avoid UI freeze
                 closeMenu();
                 setTimeout(() => {
-                  // First cancel all downloads to stop native workers
-                  ServiceManager.manager.removeDownloads(
-                    t => t.task.name === 'DOWNLOAD_CHAPTER',
-                  );
-                  // Then stop the service and clear remaining tasks
+                  // Clear all tasks first
+                  ServiceManager.manager.clearTaskList();
+                  // Then stop the service
                   ServiceManager.manager.stop();
                   setIsRunning(false); // Immediately update UI
                   showToast(getString('downloadScreen.cancelled'));
-                }, 0);
+                }, 100);
               } catch {}
             }}
             title="Cancel All"
@@ -678,7 +715,7 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
               </View>
             )}
 
-            {otherTasks.length > 0 && (
+            {(downloadNovelTasks.length > 0 || otherTasks.length > 0) && (
               <View>
                 <Text
                   style={[
@@ -686,27 +723,73 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
                     { color: theme.onSurfaceVariant },
                   ]}
                 >
-                  Other Tasks ({otherTasks.length})
+                  {downloadNovelTasks.length > 0 && otherTasks.length > 0
+                    ? `Bulk Downloads & Other Tasks (${
+                        downloadNovelTasks.length + otherTasks.length
+                      })`
+                    : downloadNovelTasks.length > 0
+                    ? `Bulk Downloads (${downloadNovelTasks.length})`
+                    : `Other Tasks (${otherTasks.length})`}
                 </Text>
               </View>
             )}
           </>
         }
         keyExtractor={(item, index) => 'task_' + index}
-        data={otherTasks}
+        data={[...downloadNovelTasks, ...otherTasks]}
         renderItem={({ item }) => (
-          <View style={styles.padding}>
-            <Text style={{ color: theme.onSurface }}>{item.meta.name}</Text>
-            {item.meta.progressText ? (
-              <Text style={{ color: theme.onSurfaceVariant }}>
-                {item.meta.progressText}
-              </Text>
-            ) : null}
+          <View
+            style={[styles.otherTaskCard, { backgroundColor: theme.surface }]}
+          >
+            <View style={styles.taskHeader}>
+              <View style={styles.flex1}>
+                <Text style={[styles.taskName, { color: theme.onSurface }]}>
+                  {item.meta.name}
+                </Text>
+                {item.meta.progressText ? (
+                  <Text
+                    style={[
+                      styles.smallText,
+                      { color: theme.onSurfaceVariant },
+                    ]}
+                  >
+                    {item.meta.progressText}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.iconRow}>
+                {/* Prioritize button - move task to front */}
+                <IconButton
+                  icon="arrow-up-bold"
+                  size={18}
+                  iconColor={theme.onSurfaceVariant}
+                  onPress={() => {
+                    try {
+                      ServiceManager.manager.prioritizeTask(item.id);
+                      showToast('Task moved to front');
+                    } catch (e) {}
+                  }}
+                  disabled={item.meta.isRunning}
+                />
+                {/* Remove button */}
+                <IconButton
+                  icon="close"
+                  size={18}
+                  iconColor={theme.onSurfaceVariant}
+                  onPress={() => {
+                    try {
+                      ServiceManager.manager.removeTaskById(item.id);
+                      showToast('Task removed');
+                    } catch (e) {}
+                  }}
+                />
+              </View>
+            </View>
             <ProgressBar
               indeterminate={
                 item.meta.isRunning && item.meta.progress === undefined
               }
-              progress={item.meta.progress}
+              progress={item.meta.progress ?? 0}
               color={theme.primary}
               style={[{ backgroundColor: theme.surface2 }, styles.marginTop]}
             />
@@ -737,7 +820,7 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
           onPress={() => {
             if (isRunning) {
               ServiceManager.manager.pause();
-              setIsRunning(false); // Immediately update UI
+              setIsRunning(false);
             } else {
               // Un-pause all before resuming
               setPausedPlugins(new Set());
@@ -745,7 +828,11 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
               setPausedPluginsState(new Set());
               setPausedNovelsState(new Set());
               ServiceManager.manager.resume();
-              setIsRunning(true); // Immediately update UI
+              // Only set isRunning to true if there are tasks
+              // The observeQueue callback will update it properly
+              setTimeout(() => {
+                setIsRunning(ServiceManager.manager.isRunning);
+              }, 100);
             }
           }}
         />
@@ -847,5 +934,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  otherTaskCard: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  taskHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    paddingBottom: 0,
+  },
+  taskName: {
+    fontWeight: '500',
   },
 });

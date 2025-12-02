@@ -1,11 +1,12 @@
 import { FlatList, StyleSheet } from 'react-native';
-import React, { useState } from 'react';
+import React from 'react';
 import { Appbar, List, SwitchItem } from '@components';
 
 import {
   useBrowseSettings,
   usePlugins,
   useTheme,
+  useAppSettings,
 } from '@hooks/persisted/index';
 import { getString } from '@strings/translations';
 import { getLocaleLanguageName, languages } from '@utils/constants/languages';
@@ -13,8 +14,6 @@ import { BrowseSettingsScreenProp } from '@navigators/types/index';
 import { useBoolean } from '@hooks';
 import ConcurrentSearchesModal from '@screens/browse/settings/modals/ConcurrentSearchesModal';
 import LibraryMatchingRuleModal from '@screens/browse/settings/modals/LibraryMatchingRuleModal';
-import { recalculateAllLibraryMatches } from '@utils/libraryMatching';
-import { showToast } from '@utils/showToast';
 
 const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
   const theme = useTheme();
@@ -27,23 +26,11 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
     hideInLibraryItems,
     enableAdvancedFilters,
     globalSearchConcurrency,
-    novelMatching,
     setBrowseSettings,
+    confirmPluginLeave,
   } = useBrowseSettings();
 
-  const [isRecalculating, setIsRecalculating] = useState(false);
-
-  const handleRecalculate = async () => {
-    setIsRecalculating(true);
-    try {
-      await recalculateAllLibraryMatches();
-      showToast('Cache recalculated successfully');
-    } catch (error: any) {
-      showToast(`Error: ${error.message}`);
-    } finally {
-      setIsRecalculating(false);
-    }
-  };
+  const { novelMatching, setAppSettings } = useAppSettings();
 
   const globalSearchConcurrencyModal = useBoolean();
   const libraryMatchingRuleModal = useBoolean();
@@ -122,17 +109,25 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
               theme={theme}
               style={styles.item}
             />
-            <List.Divider theme={theme} />
-            <List.SubHeader theme={theme}>
-              {getString('libraryMatching.title')}
-            </List.SubHeader>
             <SwitchItem
-              label={getString('libraryMatching.matchLibraryAndBrowse')}
+              label="Confirm before leaving plugin"
+              value={confirmPluginLeave ?? false}
+              onPress={() =>
+                setBrowseSettings({ confirmPluginLeave: !confirmPluginLeave })
+              }
+              theme={theme}
+              style={styles.item}
+            />
+            <List.Divider theme={theme} />
+            <List.SubHeader theme={theme}>Library Matching</List.SubHeader>
+            <SwitchItem
+              label="Enable Library Matching"
+              description="Find duplicate novels in library"
               value={novelMatching?.enabled ?? false}
               onPress={() =>
-                setBrowseSettings({
+                setAppSettings({
                   novelMatching: {
-                    ...(novelMatching ?? {}),
+                    ...novelMatching,
                     enabled: !novelMatching?.enabled,
                   },
                 })
@@ -142,18 +137,29 @@ const BrowseSettings = ({ navigation }: BrowseSettingsScreenProp) => {
             />
             {novelMatching?.enabled && (
               <>
-                <List.Item
-                  title={getString('libraryMatching.matchingRule')}
-                  description={`${novelMatching?.pluginRule ?? ''}, ${
-                    novelMatching?.libraryRule ?? ''
-                  }`}
-                  onPress={libraryMatchingRuleModal.setTrue}
+                <SwitchItem
+                  label="Show Match Badges"
+                  description="Display badges on matching novels"
+                  value={novelMatching?.showBadges ?? true}
+                  onPress={() =>
+                    setAppSettings({
+                      novelMatching: {
+                        ...novelMatching,
+                        showBadges: !novelMatching?.showBadges,
+                      },
+                    })
+                  }
                   theme={theme}
+                  style={styles.item}
                 />
                 <List.Item
-                  title="Recalculate Cache"
-                  onPress={handleRecalculate}
-                  disabled={isRecalculating}
+                  title="Matching Rules"
+                  description={`Plugin: ${
+                    novelMatching?.pluginRule || 'normalized-contains'
+                  }, Library: ${
+                    novelMatching?.libraryRule || 'normalized-contains'
+                  }`}
+                  onPress={libraryMatchingRuleModal.setTrue}
                   theme={theme}
                 />
               </>

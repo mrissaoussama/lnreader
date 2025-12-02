@@ -1,4 +1,10 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, {
+  useMemo,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
 import { xor } from 'lodash-es';
 
@@ -16,6 +22,8 @@ import ServiceManager from '@services/ServiceManager';
 import { useLibraryMatching } from '@hooks/useLibraryMatching';
 import { MMKVStorage } from '@utils/mmkv/mmkv';
 import { UPDATE_ON_PULL_REFRESH_ENABLED } from '@screens/settings/SettingsLibraryScreen/SettingsLibraryScreen';
+import { useMMKVString } from 'react-native-mmkv';
+import { LibrarySortOrder } from '@screens/library/constants/constants';
 
 const PAGE_SIZE = 50;
 
@@ -25,9 +33,8 @@ const categoryStates = new Map<
   { novels: NovelInfo[]; scrollOffset: number; hasMoreData: boolean }
 >();
 
-const getCategoryKey = (categoryId: number, searchText: string) => {
-  return searchText ? `${categoryId}_search_${searchText}` : `${categoryId}`;
-};
+const getCategoryKey = (categoryId: number, searchText: string) =>
+  searchText ? `${categoryId}_search_${searchText}` : `${categoryId}`;
 
 interface Props {
   categoryId: number;
@@ -59,10 +66,13 @@ export const LibraryView: React.FC<Props> = ({
   const theme = useTheme();
   const {
     filter,
-    sortOrder,
+    sortOrder: globalSortOrder,
     downloadedOnlyMode = false,
     libraryLoadLimit = 50,
   } = useLibrarySettings();
+
+  const [categorySortOrder] = useMMKVString(`CATEGORY_SORT_${categoryId}`);
+  const sortOrder = (categorySortOrder as LibrarySortOrder) || globalSortOrder;
 
   const categoryKey = getCategoryKey(categoryId, searchText);
 
@@ -93,12 +103,11 @@ export const LibraryView: React.FC<Props> = ({
       }
     };
   }, [categoryKey, novels, initialScrollOffset, hasMoreData]);
-
   const loadNovels = useCallback(
-    (reset: boolean = false, currentNovels: NovelInfo[] = []) => {
+    (reset: boolean = false) => {
       if (!isFocused) return;
 
-      const offset = reset ? 0 : currentNovels.length;
+      const offset = reset ? 0 : novels.length;
       const pageSize =
         libraryLoadLimit === -1 ? 999999 : libraryLoadLimit || PAGE_SIZE;
 
@@ -120,38 +129,70 @@ export const LibraryView: React.FC<Props> = ({
           offset,
           undefined,
           categoryNovelIds,
-        ).filter(novel => !hiddenPlugins.has(novel.pluginId));
+          Array.from(hiddenPlugins),
+        );
+
+        const uniqueResults = searchResults.reduce((acc, novel) => {
+          if (
+            categoryNovelIds.includes(novel.id) &&
+            !acc.some(n => n.id === novel.id)
+          ) {
+            acc.push(novel);
+          }
+          return acc;
+        }, [] as NovelInfo[]);
 
         if (reset) {
-          setNovels(searchResults);
+          setNovels(uniqueResults);
         } else {
-          setNovels(prev => [...prev, ...searchResults]);
+          setNovels(prev => {
+            const combined = [...prev, ...uniqueResults];
+            return combined.reduce((acc, novel) => {
+              if (!acc.some(n => n.id === novel.id)) acc.push(novel);
+              return acc;
+            }, [] as NovelInfo[]);
+          });
         }
 
         setHasMoreData(
-          libraryLoadLimit !== -1 && searchResults.length === pageSize,
+          libraryLoadLimit !== -1 && uniqueResults.length === pageSize,
         );
       } else {
         const categoryNovels = getLibraryNovelsFromDb(
           sortOrder,
           filter,
-          undefined,
+          '',
           downloadedOnlyMode,
           pageSize,
           offset,
           undefined,
           categoryNovelIds,
-        ).filter(novel => !hiddenPlugins.has(novel.pluginId));
+          Array.from(hiddenPlugins),
+        );
+
+        const uniqueCategoryNovels = categoryNovels.reduce((acc, novel) => {
+          if (
+            categoryNovelIds.includes(novel.id) &&
+            !acc.some(n => n.id === novel.id)
+          ) {
+            acc.push(novel);
+          }
+          return acc;
+        }, [] as NovelInfo[]);
 
         if (reset) {
-          setNovels(categoryNovels);
+          setNovels(uniqueCategoryNovels);
         } else {
-          setNovels(prev => [...prev, ...categoryNovels]);
+          setNovels(prev => {
+            const combined = [...prev, ...uniqueCategoryNovels];
+            return combined.reduce((acc, novel) => {
+              if (!acc.some(n => n.id === novel.id)) acc.push(novel);
+              return acc;
+            }, [] as NovelInfo[]);
+          });
         }
 
-        setHasMoreData(
-          libraryLoadLimit !== -1 && categoryNovels.length === pageSize,
-        );
+        setHasMoreData(uniqueCategoryNovels.length === pageSize);
       }
     },
     [
@@ -162,62 +203,77 @@ export const LibraryView: React.FC<Props> = ({
       downloadedOnlyMode,
       categoryNovelIds,
       libraryLoadLimit,
+      novels.length,
     ],
   );
 
-  const loadMoreNovels = useCallback(() => {
-    if (hasMoreData && libraryLoadLimit !== -1) {
-      loadNovels(false, novels);
-    }
-  }, [hasMoreData, loadNovels, novels, libraryLoadLimit]);
-
-  // Only reset novels when filters change or it's a new search/category without stored state
+  // Reload when sort/filter/downloadedOnlyMode changes
   useEffect(() => {
-    if (isFocused) {
-      const stored = categoryStates.get(categoryKey);
-      // Only force reload if no stored data exists (first load of this category)
-      if (!stored) {
-        loadNovels(true);
+    loadNovels(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortOrder, filter, downloadedOnlyMode]);
+
+  // Listen for plugin filter changes and force reload
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const listener = MMKVStorage.addOnValueChangedListener(key => {
+      if (
+        key === 'LIBRARY_HIDDEN_PLUGINS' ||
+        key === 'LIBRARY_PLUGIN_FILTER_KEY'
+      ) {
+        // Clear any pending timeout
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        // Use longer timeout to ensure we're outside render cycle
+        timeoutId = setTimeout(() => {
+          // Clear cached state for this category/search so it refetches
+          categoryStates.delete(categoryKey);
+          if (isFocused) {
+            loadNovels(true);
+          }
+        }, 100);
       }
-      // If we have stored data, use it (no reload) - prevents refreshes during downloads
-      // The libraryChangeKey dependency has been removed to prevent unnecessary refreshes
-    }
-  }, [
-    categoryKey,
-    isFocused,
-    sortOrder,
-    filter,
-    downloadedOnlyMode,
-    loadNovels,
-    // Removed libraryChangeKey - it was causing full refreshes on every download
-  ]);
-
-  // Notify parent component about visible novels for select all functionality
-  useEffect(() => {
-    if (onSelectAllVisible && novels.length > 0) {
-      onSelectAllVisible(novels.map(novel => novel.id));
-    }
-  }, [novels, onSelectAllVisible]);
+    });
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      listener.remove();
+    };
+  }, [categoryKey, loadNovels, isFocused]);
 
   const memoizedNovels = useMemo(() => novels, [novels]);
   const { matches: libraryMatches } = useLibraryMatching({
     novels: memoizedNovels,
   });
 
+  // Update parent component with visible novel IDs for select all functionality
+  useEffect(() => {
+    if (onSelectAllVisible) {
+      const visibleIds = novels.map(novel => novel.id);
+      onSelectAllVisible(visibleIds);
+    }
+  }, [novels, onSelectAllVisible]);
+
+  const loadMoreNovels = useCallback(() => {
+    if (!hasMoreData) return;
+    loadNovels(false);
+  }, [hasMoreData, loadNovels]);
+
   const renderItem = useCallback(
     ({ item }: { item: NovelInfo }) => {
+      const toggleSelection = (novel: NovelInfo) =>
+        setSelectedNovelIds(xor(selectedNovelIds, [novel.id]));
+      const inSelectionMode = selectedNovelIds.length > 0;
       return (
         <NovelCover
           item={item}
           theme={theme}
           isSelected={selectedNovelIds.includes(item.id)}
-          match={libraryMatches[item.id]}
-          onLongPress={() =>
-            setSelectedNovelIds(xor(selectedNovelIds, [item.id]))
-          }
+          match={libraryMatches[String(item.id)]}
+          onLongPress={toggleSelection}
           onPress={() => {
-            if (selectedNovelIds.length) {
-              setSelectedNovelIds(xor(selectedNovelIds, [item.id]));
+            if (inSelectionMode) {
+              toggleSelection(item);
             } else {
               navigation.navigate('ReaderStack', {
                 screen: 'Novel',
@@ -226,7 +282,7 @@ export const LibraryView: React.FC<Props> = ({
             }
           }}
           libraryStatus={false}
-          selectedNovelIds={selectedNovelIds}
+          selectionMode={inSelectionMode}
         />
       );
     },
@@ -234,36 +290,127 @@ export const LibraryView: React.FC<Props> = ({
   );
 
   const onRefresh = useCallback(() => {
-    if (categoryId === 2) {
-      return;
-    }
-    const updateOnPull =
-      MMKVStorage.getBoolean(UPDATE_ON_PULL_REFRESH_ENABLED) ?? true;
-    if (!updateOnPull) {
-      // Just refresh the local data without triggering update task
-      loadNovels(true);
-      return;
-    }
-    setRefreshing(true);
-    ServiceManager.manager.addTask({
-      name: 'UPDATE_LIBRARY',
-      data: {
-        categoryId,
-        categoryName,
-      },
-    });
+    if (categoryId === 2) return;
 
-    setTimeout(() => {
-      loadNovels(true);
-      setRefreshing(false);
-    }, 1000);
-  }, [categoryId, categoryName, loadNovels]);
+    let updateOnPull = true;
+    try {
+      updateOnPull =
+        MMKVStorage.getBoolean(UPDATE_ON_PULL_REFRESH_ENABLED) ?? true;
+    } catch {}
+
+    if (onSelectAllVisible) {
+      const uniqueVisibleIds = [...new Set(novels.map(novel => novel.id))];
+      const categorySpecificIds = uniqueVisibleIds.filter(id =>
+        categoryNovelIds.includes(id),
+      );
+      onSelectAllVisible(categorySpecificIds);
+    }
+
+    if (updateOnPull) {
+      setRefreshing(true);
+      ServiceManager.manager.addTask({
+        name: 'UPDATE_LIBRARY',
+        data: { categoryId, categoryName },
+      });
+
+      // Subscribe to the update task completion to properly refresh
+      const unsubscribe = ServiceManager.manager.observe(
+        'UPDATE_LIBRARY',
+        task => {
+          if (!task || !task.meta.isRunning) {
+            loadNovels(true);
+            setRefreshing(false);
+            unsubscribe();
+          }
+        },
+      );
+    } else {
+      // Just refetch library data without calling update task
+      setRefreshing(true);
+      loadNovels(true).finally(() => setRefreshing(false));
+    }
+  }, [
+    categoryId,
+    categoryName,
+    loadNovels,
+    novels,
+    onSelectAllVisible,
+    categoryNovelIds,
+  ]);
+
+  // Refresh automatically if plugin filter (hidden plugins) changes
+  useEffect(() => {
+    const listener = MMKVStorage.addOnValueChangedListener(key => {
+      if (key === 'LIBRARY_HIDDEN_PLUGINS') {
+        // Clear cached state for this category/search so it refetches
+        categoryStates.delete(categoryKey);
+        loadNovels(true);
+      }
+    });
+    return () => listener.remove();
+  }, [categoryKey, loadNovels]);
+
+  // Incremental update: observe global queue and update chaptersDownloaded as downloads complete
+  const prevDownloadCountsRef = useRef<Map<number, number>>(new Map());
+  useEffect(() => {
+    const unsubscribe = ServiceManager.manager.observeQueue(tasks => {
+      // Count current downloads per novelId
+      const currentCounts = new Map<number, number>();
+      tasks.forEach(t => {
+        if (t.task.name === 'DOWNLOAD_CHAPTER') {
+          const novelId = (t.task as any).data?.novelId as number | undefined;
+          if (typeof novelId === 'number') {
+            currentCounts.set(novelId, (currentCounts.get(novelId) || 0) + 1);
+          }
+        }
+      });
+
+      const prev = prevDownloadCountsRef.current;
+      // For any novel where count decreased, increment chaptersDownloaded in UI by the delta
+      const deltas: Array<{ novelId: number; delta: number }> = [];
+      const allNovelIds = new Set<number>([
+        ...prev.keys(),
+        ...currentCounts.keys(),
+      ]);
+      allNovelIds.forEach(id => {
+        const before = prev.get(id) || 0;
+        const after = currentCounts.get(id) || 0;
+        if (after < before) {
+          deltas.push({ novelId: id, delta: before - after });
+        }
+      });
+
+      if (deltas.length > 0) {
+        setNovels(prevNovels => {
+          if (!prevNovels || prevNovels.length === 0) return prevNovels;
+          let changed = false;
+          const updated = prevNovels.map(n => {
+            const d = deltas.find(x => x.novelId === n.id);
+            if (d) {
+              changed = true;
+              const current = (n as any).chaptersDownloaded || 0;
+              return {
+                ...n,
+                chaptersDownloaded: Math.max(0, current + d.delta),
+              } as any;
+            }
+            return n;
+          });
+          return changed ? updated : prevNovels;
+        });
+      }
+
+      // Save current counts for next diff
+      prevDownloadCountsRef.current = currentCounts;
+    });
+    return unsubscribe;
+  }, []);
 
   return (
     <View style={styles.flex}>
       <NovelList
         data={novels}
-        extraData={[selectedNovelIds]}
+        extraData={[selectedNovelIds.length]}
         renderItem={renderItem as NovelListRenderItem}
         onEndReached={loadMoreNovels}
         onEndReachedThreshold={0.5}

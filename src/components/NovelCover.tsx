@@ -23,7 +23,7 @@ import { getString } from '@strings/translations';
 import SourceScreenSkeletonLoading from '@screens/browse/loadingAnimation/SourceScreenSkeletonLoading';
 import { defaultCover } from '@plugins/helpers/constants';
 import { ActivityIndicator } from 'react-native-paper';
-import { MatchType } from '@utils/libraryMatching';
+import { MatchType, shouldShowBadges } from '@utils/libraryMatching';
 
 interface UnreadBadgeProps {
   chaptersDownloaded: number;
@@ -95,7 +95,9 @@ function NovelCover<
     showDownloadBadges = true,
     showUnreadBadges = true,
     showNotesBadges = true,
+    showCovers = true,
     novelsPerRow = 3,
+    novelTitleLines = 2,
   } = useLibrarySettings();
 
   const window = useWindowDimensions();
@@ -162,7 +164,7 @@ function NovelCover<
       >
         <View style={styles.badgeContainer}>
           {libraryStatus ? <InLibraryBadge theme={theme} /> : null}
-          {match && !libraryStatus ? (
+          {match && !libraryStatus && shouldShowBadges() ? (
             <LibraryMatchBadge matchType={match} theme={theme} />
           ) : null}
           {isFromDB(item) ? (
@@ -190,20 +192,36 @@ function NovelCover<
           ) : null}
           {inActivity ? <InActivityBadge theme={theme} /> : null}
         </View>
-        <Image
-          source={{ uri, headers: { 'User-Agent': getUserAgent() } }}
-          style={[
-            {
-              height: coverHeight,
-              backgroundColor: coverPlaceholderColor,
-            },
-            styles.standardBorderRadius,
-            libraryStatus && styles.opacityPoint5,
-          ]}
-        />
+        {showCovers ? (
+          <Image
+            source={{ uri, headers: { 'User-Agent': getUserAgent() } }}
+            style={[
+              {
+                height: coverHeight,
+                backgroundColor: coverPlaceholderColor,
+              },
+              styles.standardBorderRadius,
+              libraryStatus && styles.opacityPoint5,
+            ]}
+          />
+        ) : (
+          <View
+            style={[
+              {
+                height: coverHeight,
+                backgroundColor: coverPlaceholderColor,
+              },
+              styles.standardBorderRadius,
+              libraryStatus && styles.opacityPoint5,
+            ]}
+          />
+        )}
         <View style={styles.compactTitleContainer}>
           {displayMode === DisplayModes.Compact ? (
-            <CompactTitle novelName={item.name} />
+            <CompactTitle
+              novelName={item.name}
+              numberOfLines={novelTitleLines}
+            />
           ) : null}
         </View>
         {displayMode === DisplayModes.Comfortable ? (
@@ -211,6 +229,7 @@ function NovelCover<
             novelName={item.name}
             theme={theme}
             width={coverWidth}
+            numberOfLines={novelTitleLines}
           />
         ) : null}
       </Pressable>
@@ -245,7 +264,9 @@ function NovelCover<
       }
       inLibraryBadge={libraryStatus && <InLibraryBadge theme={theme} />}
       libraryMatchBadge={
-        match ? <LibraryMatchBadge matchType={match} theme={theme} /> : null
+        match && shouldShowBadges() ? (
+          <LibraryMatchBadge matchType={match} theme={theme} />
+        ) : null
       }
       theme={theme}
       onPress={selectionMode ? selectNovel : onPress}
@@ -261,13 +282,15 @@ const ComfortableTitle = ({
   theme,
   novelName,
   width,
+  numberOfLines,
 }: {
   theme: ThemeColors;
   novelName: string;
   width?: number;
+  numberOfLines: number;
 }) => (
   <Text
-    numberOfLines={2}
+    numberOfLines={numberOfLines}
     style={[
       styles.title,
       styles.padding4,
@@ -281,13 +304,22 @@ const ComfortableTitle = ({
   </Text>
 );
 
-const CompactTitle = ({ novelName }: { novelName: string }) => (
+const CompactTitle = ({
+  novelName,
+  numberOfLines,
+}: {
+  novelName: string;
+  numberOfLines: number;
+}) => (
   <View style={styles.titleContainer}>
     <LinearGradient
       colors={['transparent', 'rgba(0,0,0,0.7)']}
       style={styles.linearGradient}
     >
-      <Text numberOfLines={2} style={[styles.title, styles.compactTitle]}>
+      <Text
+        numberOfLines={numberOfLines}
+        style={[styles.title, styles.compactTitle]}
+      >
         {novelName}
       </Text>
     </LinearGradient>
@@ -405,15 +437,12 @@ const LibraryMatchBadge: React.FC<LibraryMatchBadgeProps> = ({ theme }) => {
     borderRadius: 4,
     color: theme.onPrimary,
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: 'bold' as 'bold',
   };
 
   return (
     <View style={styles.libraryMatchBadge}>
-      <Text style={badgeStyle}>
-        {/* in case image matching is added in the future */}
-        {/*matchType === 'title' ? 'T' : ''*/} 'T'
-      </Text>
+      <Text style={badgeStyle}>T</Text>
     </View>
   );
 };

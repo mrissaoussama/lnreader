@@ -15,9 +15,11 @@ import Downloads from '../screens/more/DownloadsScreen';
 import AppearanceSettings from '../screens/settings/SettingsAppearanceScreen';
 import CategoriesScreen from '@screens/Categories/CategoriesScreen';
 import RespositorySettings from '@screens/settings/SettingsRepositoryScreen/SettingsRepositoryScreen';
+import { StorageSettingsScreen } from '@screens/settings/SettingsStorageScreen';
 // import LibrarySettings from '@screens/settings/SettingsLibraryScreen/SettingsLibraryScreen';
 import StatsScreen from '@screens/StatsScreen/StatsScreen';
 import { MoreStackParamList, SettingsStackParamList } from './types';
+import SettingsNetworkScreen from '@screens/settings/SettingsNetworkScreen/SettingsNetworkScreen';
 
 const Stack = createNativeStackNavigator<
   MoreStackParamList & SettingsStackParamList
@@ -35,6 +37,8 @@ const SettingsStack = () => (
     <Stack.Screen name="AppearanceSettings" component={AppearanceSettings} />
     <Stack.Screen name="AdvancedSettings" component={AdvancedSettings} />
     <Stack.Screen name="RespositorySettings" component={RespositorySettings} />
+    <Stack.Screen name="StorageSettings" component={StorageSettingsScreen} />
+    <Stack.Screen name="NetworkSettings" component={SettingsNetworkScreen} />
     {/* <Stack.Screen name="LibrarySettings" component={LibrarySettings} /> */}
   </Stack.Navigator>
 );

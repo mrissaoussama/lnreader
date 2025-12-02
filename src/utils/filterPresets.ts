@@ -8,6 +8,7 @@ export interface FilterPreset {
   name: string;
   filters: FilterToValues<Filters>;
   createdAt: string;
+  isDefault?: boolean;
 }
 
 const getPresetsKey = (pluginId: string): string => {
@@ -84,6 +85,31 @@ export const getFilterPreset = (
   try {
     const presets = getFilterPresets(pluginId);
     return presets.find(preset => preset.id === presetId) || null;
+  } catch (error) {
+    return null;
+  }
+};
+
+export const setDefaultPreset = (
+  pluginId: string,
+  presetId: string | null,
+): void => {
+  try {
+    const presets = getFilterPresets(pluginId);
+    const updatedPresets = presets.map(preset => ({
+      ...preset,
+      isDefault: preset.id === presetId,
+    }));
+    MMKVStorage.set(getPresetsKey(pluginId), JSON.stringify(updatedPresets));
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const getDefaultPreset = (pluginId: string): FilterPreset | null => {
+  try {
+    const presets = getFilterPresets(pluginId);
+    return presets.find(preset => preset.isDefault) || null;
   } catch (error) {
     return null;
   }

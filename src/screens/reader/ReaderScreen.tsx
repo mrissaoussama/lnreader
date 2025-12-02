@@ -18,6 +18,7 @@ import { useBackHandler } from '@hooks/index';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, View } from 'react-native';
 import { Drawer } from 'react-native-drawer-layout';
+import ServiceManager from '@services/ServiceManager';
 
 const Chapter = ({ route, navigation }: ChapterScreenProps) => {
   const [open, setOpen] = useState(false);
@@ -67,15 +68,37 @@ export const ChapterContent = ({
   const { novel, chapter } = useChapterContext();
   const readerSheetRef = useRef<BottomSheetModalMethods>(null);
   const theme = useTheme();
-  const { pageReader = false, keepScreenOn } = useChapterGeneralSettings();
+  const {
+    pageReader = false,
+    keepScreenOn,
+    useServiceForeground,
+  } = useChapterGeneralSettings();
   const [bookmarked, setBookmarked] = useState(chapter.bookmark);
 
   useEffect(() => {
     setBookmarked(chapter.bookmark);
   }, [chapter]);
 
-  const { hidden, loading, error, webViewRef, hideHeader, reloadChapter } =
-    useChapterContext();
+  useEffect(() => {
+    if (useServiceForeground) {
+      ServiceManager.manager.startReadingSession();
+    }
+    return () => {
+      if (useServiceForeground) {
+        ServiceManager.manager.stopReadingSession();
+      }
+    };
+  }, [useServiceForeground]);
+
+  const {
+    hidden,
+    loading,
+    error,
+    webViewRef,
+    hideHeader,
+    reloadChapter,
+    reloadChapterLocal,
+  } = useChapterContext();
 
   const scrollToStart = () =>
     requestAnimationFrame(() => {
@@ -139,6 +162,7 @@ export const ChapterContent = ({
             bookmarked={bookmarked}
             setBookmarked={setBookmarked}
             onReload={reloadChapter}
+            onReloadLocal={reloadChapterLocal}
           />
           <ReaderFooter
             readerSheetRef={readerSheetRef}

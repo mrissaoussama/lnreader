@@ -21,7 +21,7 @@ const TextSizeSlider: React.FC = () => {
         style={styles.slider}
         value={textSize}
         minimumValue={12}
-        maximumValue={20}
+        maximumValue={80}
         step={1}
         minimumTrackTintColor={theme.primary}
         maximumTrackTintColor={TRACK_TINT_COLOR}

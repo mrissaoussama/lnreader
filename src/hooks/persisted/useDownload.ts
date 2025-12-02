@@ -41,19 +41,55 @@ export default function useDownload() {
         chapterName: chapter.name,
       },
     });
-  const downloadChapters = (novel: NovelInfo, chapters: ChapterInfo[]) =>
-    ServiceManager.manager.addTask(
-      chapters.map(chapter => ({
-        name: 'DOWNLOAD_CHAPTER',
+  const downloadChapters = (novel: NovelInfo, chapters: ChapterInfo[]) => {
+    if (chapters.length > 5) {
+      ServiceManager.manager.addTask({
+        name: 'DOWNLOAD_NOVEL',
         data: {
-          chapterId: chapter.id,
           novelId: novel.id,
           pluginId: novel.pluginId,
           novelName: novel.name,
-          chapterName: chapter.name,
+          chapters: chapters.map(c => c.id),
         },
-      })),
-    );
+      });
+    } else {
+      ServiceManager.manager.addTask(
+        chapters.map(chapter => ({
+          name: 'DOWNLOAD_CHAPTER',
+          data: {
+            chapterId: chapter.id,
+            novelId: novel.id,
+            pluginId: novel.pluginId,
+            novelName: novel.name,
+            chapterName: chapter.name,
+          },
+        })),
+      );
+    }
+  };
+
+  const downloadAll = (novel: NovelInfo) =>
+    ServiceManager.manager.addTask({
+      name: 'DOWNLOAD_NOVEL',
+      data: {
+        novelId: novel.id,
+        pluginId: novel.pluginId,
+        novelName: novel.name,
+        mode: 'all',
+      },
+    });
+
+  const downloadUnread = (novel: NovelInfo) =>
+    ServiceManager.manager.addTask({
+      name: 'DOWNLOAD_NOVEL',
+      data: {
+        novelId: novel.id,
+        pluginId: novel.pluginId,
+        novelName: novel.name,
+        mode: 'unread',
+      },
+    });
+
   const resumeDowndload = () => ServiceManager.manager.resume();
 
   const pauseDownload = () => ServiceManager.manager.pause();
@@ -67,6 +103,8 @@ export default function useDownload() {
     resumeDowndload,
     downloadChapter,
     downloadChapters,
+    downloadAll,
+    downloadUnread,
     pauseDownload,
     cancelDownload,
   };

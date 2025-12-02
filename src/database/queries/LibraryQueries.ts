@@ -17,6 +17,16 @@ const normalizeForDb = (title: string): string => {
     .trim();
 };
 
+// Validate that a title has meaningful content (at least 2 characters after normalization)
+const isValidTitle = (title: string): boolean => {
+  if (!title || typeof title !== 'string') return false;
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return false;
+  // For normalized matching, check that there's actual content after removing special chars
+  const normalized = normalizeForDb(trimmed);
+  return normalized.length >= 2; // Require at least 2 characters to avoid false positives
+};
+
 /**
  * Finds matching novels of the passed titles using the rule provided, can exclude by plugin and path.
  * Handles both main titles and alternative titles with proper sanitization
@@ -69,7 +79,14 @@ export const findLibraryMatchesAsync = async (
     } catch {}
   }
   const allSearchTitles = [searchTitle, ...enrichedAlts];
-  const preparedTitles = allSearchTitles
+
+  // Validate and filter titles - reject invalid titles early
+  const validTitles = allSearchTitles.filter(isValidTitle);
+  if (validTitles.length === 0) {
+    return [];
+  }
+
+  const preparedTitles = validTitles
     .map(title => {
       const lowerTitle = (title ?? '').toLowerCase();
       if (rule.includes('normalized')) {
@@ -77,32 +94,41 @@ export const findLibraryMatchesAsync = async (
       }
       return lowerTitle.trim();
     })
-    .filter(t => t.length > 0);
+    .filter(t => t.length >= 2); // Double-check after normalization
+
   if (preparedTitles.length === 0) {
     return [];
   }
 
   const getDbColumnExpr = (col: string) => {
     if (rule.includes('normalized')) {
-      return `REPLACE(REPLACE(LOWER(${col}), ' ', ''), '-', '')`;
+      // Remove common special characters: space, hyphen, underscore, dot, comma, apostrophe, colon, exclamation, question
+      return `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(${col}), ' ', ''), '-', ''), '_', ''), '.', ''), ',', ''), '''', ''), ':', ''), '!', ''), '?', '')`;
     }
     return `LOWER(${col})`;
   };
   const dbNameCol = getDbColumnExpr('n.name');
   const dbAltTitleCol = getDbColumnExpr('at.title');
+
+  // Add SQL-level validation to ensure we don't match empty or too-short titles
+  const minLengthCheck = rule.includes('normalized')
+    ? `LENGTH(${dbNameCol}) >= 2`
+    : `LENGTH(TRIM(${dbNameCol})) >= 2`;
+
   const createConditions = (titlePlaceholder: string) => {
     switch (rule) {
       case 'exact':
       case 'normalized-exact':
         return {
-          main: `${dbNameCol} = ${titlePlaceholder}`,
-          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND ${dbAltTitleCol} = ${titlePlaceholder})`,
+          main: `${dbNameCol} = ${titlePlaceholder} AND ${minLengthCheck}`,
+          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND ${dbAltTitleCol} = ${titlePlaceholder} AND LENGTH(${dbAltTitleCol}) >= 2)`,
         };
       case 'contains':
       case 'normalized-contains':
+        // For contains, check if the library title contains the search term OR the search term contains the library title
         return {
-          main: `(${dbNameCol} LIKE '%' || ${titlePlaceholder} || '%' OR ${titlePlaceholder} LIKE '%' || ${dbNameCol} || '%')`,
-          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND (${dbAltTitleCol} LIKE '%' || ${titlePlaceholder} || '%' OR ${titlePlaceholder} LIKE '%' || ${dbAltTitleCol} || '%'))`,
+          main: `((${dbNameCol} LIKE '%' || ${titlePlaceholder} || '%' OR ${titlePlaceholder} LIKE '%' || ${dbNameCol} || '%') AND ${minLengthCheck})`,
+          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND (${dbAltTitleCol} LIKE '%' || ${titlePlaceholder} || '%' OR ${titlePlaceholder} LIKE '%' || ${dbAltTitleCol} || '%') AND LENGTH(${dbAltTitleCol}) >= 2)`,
         };
       default:
         return { main: '1=0', alt: '1=0' };
@@ -156,17 +182,17 @@ export const findLibraryMatchesAsync = async (
     GROUP BY n.id`;
 
   const args: (string | number)[] = [];
-  if (rule.includes('contains')) {
-    // For main title conditions (two placeholders per title because of bidirectional contains)
-    preparedTitles.forEach(title => (args.push as any)(title, title));
-    // For alt title conditions (two placeholders per title because of bidirectional contains)
-    preparedTitles.forEach(title => (args.push as any)(title, title));
-  } else {
-    // For main title conditions
-    args.push(...preparedTitles);
-    // For alt title conditions
-    args.push(...preparedTitles);
-  }
+  // For bidirectional LIKE, each title appears 4 times: 2 in main condition, 2 in alt condition
+  // Main title conditions: (dbCol LIKE '%' || ? || '%' OR ? LIKE '%' || dbCol || '%')
+  preparedTitles.forEach(title => {
+    args.push(title); // for main title LIKE '%' || ? || '%'
+    args.push(title); // for ? LIKE '%' || main title || '%'
+  });
+  // Alt title conditions: (dbCol LIKE '%' || ? || '%' OR ? LIKE '%' || dbCol || '%')
+  preparedTitles.forEach(title => {
+    args.push(title); // for alt title LIKE '%' || ? || '%'
+    args.push(title); // for ? LIKE '%' || alt title || '%'
+  });
   // then exclusion params in the same order we appended to WHERE
   if (hasExcludeId) {
     args.push(excludeNovelId as number);
@@ -182,6 +208,7 @@ export const findLibraryMatchesAsync = async (
     pluginId: string;
     path: string;
     cover?: string;
+    status?: string;
     chaptersDownloaded: number;
     chaptersUnread: number;
     totalChapters: number;
@@ -238,44 +265,61 @@ export const hasLibraryMatchAsync = async (
       }
     } catch {}
   }
-  const all = [searchTitle, ...enrichedAlts]
+
+  // Validate all titles first
+  const allTitles = [searchTitle, ...enrichedAlts];
+  const validTitles = allTitles.filter(isValidTitle);
+  if (validTitles.length === 0) {
+    return false;
+  }
+
+  const all = validTitles
     .map(t => (t ?? '').toLowerCase())
-    .map(t =>
-      rule.includes('normalized') ? t.replace(/[\s-]/g, '') : t.trim(),
-    )
-    .filter(t => t.length > 0);
+    .map(t => (rule.includes('normalized') ? normalizeForDb(t) : t.trim()))
+    .filter(t => t.length >= 2); // Require at least 2 chars after normalization
+
   if (all.length === 0) {
     return false;
   }
 
   const col = (c: string) =>
     rule.includes('normalized')
-      ? `REPLACE(REPLACE(LOWER(${c}), ' ', ''), '-', '')`
+      ? `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(${c}), ' ', ''), '-', ''), '_', ''), '.', ''), ',', ''), '''', ''), ':', ''), '!', ''), '?', '')`
       : `LOWER(${c})`;
   const nameCol = col('n.name');
   const altCol = col('at.title');
-  const conds = (ph: string) =>
-    rule.includes('contains')
+
+  // Add SQL-level length validation
+  const minLengthCheck = rule.includes('normalized')
+    ? `LENGTH(${nameCol}) >= 2`
+    : `LENGTH(TRIM(${nameCol})) >= 2`;
+
+  const conds = (ph: string) => {
+    return rule.includes('contains')
       ? {
-          main: `(${nameCol} LIKE '%' || ${ph} || '%' OR ${ph} LIKE '%' || ${nameCol} || '%')`,
-          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND (${altCol} LIKE '%' || ${ph} || '%' OR ${ph} LIKE '%' || ${altCol} || '%'))`,
+          main: `(${nameCol} LIKE '%' || ${ph} || '%' OR ${ph} LIKE '%' || ${nameCol} || '%') AND ${minLengthCheck}`,
+          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND (${altCol} LIKE '%' || ${ph} || '%' OR ${ph} LIKE '%' || ${altCol} || '%') AND LENGTH(${altCol}) >= 2)`,
         }
       : {
-          main: `${nameCol} = ${ph}`,
-          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND ${altCol} = ${ph})`,
+          main: `${nameCol} = ${ph} AND ${minLengthCheck}`,
+          alt: `EXISTS (SELECT 1 FROM AlternativeTitle at WHERE at.novelId = n.id AND ${altCol} = ${ph} AND LENGTH(${altCol}) >= 2)`,
         };
+  };
 
   const main = all.map(() => conds('?').main).join(' OR ');
   const alt = all.map(() => conds('?').alt).join(' OR ');
   let q = `SELECT 1 FROM Novel n WHERE n.inLibrary = 1 AND ((${main}) OR (${alt}))`;
   const args: (string | number)[] = [];
+
   if (rule.includes('contains')) {
-    // two placeholders per title for main (bidirectional), then two per title for alt
-    all.forEach(t => args.push(t, t));
-    all.forEach(t => args.push(t, t));
+    // Bidirectional: 2 args per title for main, 2 args per title for alt
+    args.push(...all.flatMap(t => [t, t]));
+    args.push(...all.flatMap(t => [t, t]));
   } else {
+    // Exact: 1 arg per title for main, 1 arg per title for alt
     args.push(...all, ...all);
   }
+
   if (excludeNovelId != null) {
     q += ' AND n.id <> ?';
     args.push(excludeNovelId);
@@ -287,6 +331,7 @@ export const hasLibraryMatchAsync = async (
   q += ' LIMIT 1';
   const row = await getFirstAsync<{ any: number }>([q, args]);
   const has = !!row;
+
   return has;
 };
 

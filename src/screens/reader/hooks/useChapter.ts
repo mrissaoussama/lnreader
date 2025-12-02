@@ -12,26 +12,16 @@ import {
   useTracker,
 } from '@hooks/persisted';
 import { fetchChapter } from '@services/plugin/fetch';
-import { NOVEL_STORAGE } from '@utils/Storages';
-import {
-  RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { RefObject, useCallback, useEffect, useMemo, useState } from 'react';
 import { sanitizeChapterText } from '../utils/sanitizeChapterText';
 import { parseChapterNumber } from '@utils/parseChapterNumber';
 import WebView from 'react-native-webview';
 import { useFullscreenMode } from '@hooks';
 import { Dimensions, NativeEventEmitter } from 'react-native';
 import * as Speech from 'expo-speech';
-import { defaultTo } from 'lodash-es';
 import { showToast } from '@utils/showToast';
 import { getString } from '@strings/translations';
 import NativeVolumeButtonListener from '@specs/NativeVolumeButtonListener';
-import NativeFile from '@specs/NativeFile';
 import { useNovelContext } from '@screens/novel/NovelContext';
 
 const emmiter = new NativeEventEmitter(NativeVolumeButtonListener);
@@ -53,15 +43,99 @@ export default function useChapter(
   const [chapterText, setChapterText] = useState('');
 
   const [[nextChapter, prevChapter], setAdjacentChapter] = useState<
-    ChapterInfo[] | undefined[]
+    (ChapterInfo | undefined)[]
   >([]);
-  const { autoScroll, autoScrollInterval, autoScrollOffset, useVolumeButtons } =
-    useChapterGeneralSettings();
+  const { useVolumeButtons } = useChapterGeneralSettings();
   const { incognitoMode } = useLibrarySettings();
   const [error, setError] = useState<string>();
   const { tracker } = useTracker();
-  const { trackedNovel, updateNovelProgess } = useTrackedNovel(novel.id);
+  const { trackedNovel, syncProgress } = useTrackedNovel(novel.id);
   const { setImmersiveMode, showStatusAndNavBar } = useFullscreenMode();
+
+  const getChapter = useCallback(
+    async (targetChapter: ChapterInfo = chapter, forceUpdate = false) => {
+      try {
+        setLoading(true);
+        setError(undefined);
+
+        let text = '';
+
+        if (!forceUpdate && chapterTextCache.has(targetChapter.id)) {
+          const cached = chapterTextCache.get(targetChapter.id)!;
+          // Handle both string and Promise<string> from cache
+          text = cached instanceof Promise ? await cached : cached;
+        } else {
+          const dbChapter = await getDbChapter(targetChapter.id);
+          // Check if chapter is downloaded and read from file
+          if (!forceUpdate && dbChapter?.isDownloaded) {
+            try {
+              const { StorageManager } = await import('@utils/StorageManager');
+              const novelDir = StorageManager.getNovelPath(
+                novel.id,
+                novel.pluginId,
+              );
+              const chapterPath = `${novelDir}/${targetChapter.id}/index.html`;
+              const NativeFile = (await import('@specs/NativeFile')).default;
+
+              if (await NativeFile.exists(chapterPath)) {
+                text = await NativeFile.readFile(chapterPath);
+                // console.log('Loaded chapter from file:', chapterPath);
+              } else {
+                // console.warn('Chapter marked downloaded but file missing:', chapterPath);
+                // Fallback to network if file missing
+                text = await fetchChapter(novel.pluginId, targetChapter.path);
+              }
+            } catch (e) {
+              // console.error('Error reading chapter file:', e);
+              // If reading downloaded file fails, fetch from internet
+              text = await fetchChapter(novel.pluginId, targetChapter.path);
+            }
+          } else {
+            // Fetch from internet
+            text = await fetchChapter(novel.pluginId, targetChapter.path);
+            if (text && !incognitoMode) {
+              // Optional: Save to DB if not incognito?
+              // For now, we just display it.
+              // If we want to save, we need a query for that.
+              // But let's keep it simple and consistent with previous behavior if possible.
+            }
+          }
+        }
+
+        if (text) {
+          const sanitized = sanitizeChapterText(
+            novel.pluginId,
+            novel.name,
+            targetChapter.name,
+            text,
+          );
+          setChapterText(sanitized);
+          chapterTextCache.set(targetChapter.id, text);
+        } else {
+          setError('Chapter content is empty');
+        }
+
+        setChapter(targetChapter);
+
+        const next = await getNextChapter(
+          targetChapter.novelId,
+          targetChapter.position || 0,
+          targetChapter.page,
+        );
+        const prev = await getPrevChapter(
+          targetChapter.novelId,
+          targetChapter.position || 0,
+          targetChapter.page,
+        );
+        setAdjacentChapter([next ?? undefined, prev ?? undefined]);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [chapter, chapterTextCache, incognitoMode, novel.pluginId],
+  );
 
   const connectVolumeButton = useCallback(() => {
     emmiter.addListener('VolumeUp', () => {
@@ -96,102 +170,16 @@ export default function useChapter(
     };
   }, [useVolumeButtons, chapter, connectVolumeButton]);
 
-  const loadChapterText = useCallback(
-    async (id: number, path: string) => {
-      const filePath = `${NOVEL_STORAGE}/${novel.pluginId}/${chapter.novelId}/${id}/index.html`;
-      let text = '';
-      if (NativeFile.exists(filePath)) {
-        text = NativeFile.readFile(filePath);
-      } else {
-        await fetchChapter(novel.pluginId, path)
-          .then(res => {
-            text = res;
-          })
-          .catch(e => setError(e.message));
-      }
-      return text;
-    },
-    [chapter.novelId, novel.pluginId],
-  );
-
-  const getChapter = useCallback(
-    async (navChapter?: ChapterInfo) => {
-      try {
-        const chap = navChapter ?? chapter;
-        const cachedText = chapterTextCache.get(chap.id);
-        const text = cachedText ?? loadChapterText(chap.id, chap.path);
-        const [nextChap, prevChap, awaitedText] = await Promise.all([
-          getNextChapter(chap.novelId, chap.position!, chap.page),
-          getPrevChapter(chap.novelId, chap.position!, chap.page),
-          text,
-        ]);
-        if (nextChap && !chapterTextCache.get(nextChap.id)) {
-          chapterTextCache.set(
-            nextChap.id,
-            loadChapterText(nextChap.id, nextChap.path),
-          );
-        }
-        if (!cachedText) {
-          chapterTextCache.set(chap.id, text);
-        }
-        setChapter(chap);
-        setChapterText(
-          sanitizeChapterText(
-            novel.pluginId,
-            novel.name,
-            chap.name,
-            awaitedText,
-          ),
-        );
-        setAdjacentChapter([nextChap!, prevChap!]);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [
-      chapter,
-      chapterTextCache,
-      loadChapterText,
-      setChapter,
-      setChapterText,
-      novel.pluginId,
-      novel.name,
-      setLoading,
-    ],
-  );
-
-  const scrollInterval = useRef<NodeJS.Timeout>(null);
-  useEffect(() => {
-    if (autoScroll) {
-      scrollInterval.current = setInterval(() => {
-        webViewRef.current?.injectJavaScript(`(()=>{
-          window.scrollBy({top:${defaultTo(
-            autoScrollOffset,
-            Dimensions.get('window').height,
-          )},behavior:'smooth'})
-        })()`);
-      }, autoScrollInterval * 1000);
-    } else {
-      if (scrollInterval.current) {
-        clearInterval(scrollInterval.current);
-      }
-    }
-
-    return () => {
-      if (scrollInterval.current) {
-        clearInterval(scrollInterval.current);
-      }
-    };
-  }, [autoScroll, autoScrollInterval, autoScrollOffset, webViewRef]);
-
   const updateTracker = useCallback(() => {
     const chapterNumber = parseChapterNumber(novel.name, chapter.name);
-    if (tracker && trackedNovel && chapterNumber > trackedNovel.progress) {
-      updateNovelProgess(tracker, chapterNumber);
+    if (
+      tracker &&
+      trackedNovel &&
+      chapterNumber > trackedNovel.lastChapterRead
+    ) {
+      syncProgress(chapterNumber);
     }
-  }, [chapter.name, novel.name, trackedNovel, tracker, updateNovelProgess]);
+  }, [chapter.name, novel.name, trackedNovel, tracker, syncProgress]);
 
   const saveProgress = useCallback(
     (percentage: number) => {
@@ -254,8 +242,17 @@ export default function useChapter(
     setLoading(true);
     setError(undefined);
     chapterTextCache.delete(chapter.id);
-    await getChapter(chapter);
-  }, [chapter, getChapter, chapterTextCache]);
+    await getChapter(chapter, true); // Pass true to force refresh from server
+  }, [chapter, getChapter, chapterTextCache, setLoading, setError]);
+
+  const reloadChapterLocal = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    // Do not delete from cache, or maybe delete to force re-read from file?
+    // If we want to re-read from file, we should probably clear cache.
+    chapterTextCache.delete(chapter.id);
+    await getChapter(chapter, false); // Pass false to try local file first
+  }, [chapter, getChapter, chapterTextCache, setLoading, setError]);
 
   useEffect(() => {
     getChapter();
@@ -293,6 +290,7 @@ export default function useChapter(
       navigateChapter,
       hideHeader,
       reloadChapter,
+      reloadChapterLocal,
     }),
     [
       chapter,
@@ -306,6 +304,7 @@ export default function useChapter(
       navigateChapter,
       hideHeader,
       reloadChapter,
+      reloadChapterLocal,
     ],
   );
 }

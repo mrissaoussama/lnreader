@@ -30,6 +30,7 @@ const GeneralSettings: React.FC = () => {
     bionicReading = false,
     tapToScroll = false,
     setChapterGeneralSettings,
+    useServiceForeground = false,
   } = useChapterGeneralSettings();
 
   const areAutoScrollSettingsDefault =
@@ -42,6 +43,9 @@ const GeneralSettings: React.FC = () => {
     <>
       <List.SubHeader theme={theme}>
         {getString('generalSettings')}
+      </List.SubHeader>
+      <List.SubHeader theme={theme}>
+        {getString('readerSettings.generalSettings')}
       </List.SubHeader>
       <SettingSwitch
         label={getString('readerScreen.bottomSheet.keepScreenOn')}
@@ -100,6 +104,17 @@ const GeneralSettings: React.FC = () => {
         label={getString('readerScreen.bottomSheet.autoscroll')}
         value={autoScroll}
         onPress={() => setChapterGeneralSettings({ autoScroll: !autoScroll })}
+        theme={theme}
+      />
+      <SettingSwitch
+        label="Keep app alive while reading"
+        description="Shows a foreground notification to prevent app from being killed"
+        value={useServiceForeground}
+        onPress={() =>
+          setChapterGeneralSettings({
+            useServiceForeground: !useServiceForeground,
+          })
+        }
         theme={theme}
       />
       {autoScroll ? (

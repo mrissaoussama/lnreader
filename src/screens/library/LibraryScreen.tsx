@@ -9,6 +9,7 @@ import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { TabBar, TabView } from 'react-native-tab-view';
 import Color from 'color';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { SearchbarV2, SafeAreaView } from '@components/index';
 import { LibraryView } from './components/LibraryListView';
@@ -30,8 +31,13 @@ import {
   markAllChaptersRead,
   markAllChaptersUnread,
   getNovelChapters,
+  deleteChaptersByCriteria,
 } from '@database/queries/ChapterQueries';
-import { removeNovelsFromLibrary } from '@database/queries/NovelQueries';
+import { batchDeleteChaptersByCriteria } from '@database/queries/BatchChapterQueries';
+import {
+  removeNovelsFromLibrary,
+  deleteNovelCover,
+} from '@database/queries/NovelQueries';
 import { getCategoryNovelCounts } from '@database/queries/LibraryQueries';
 import SetCategoryModal from '@screens/novel/components/SetCategoriesModal';
 import MassImportModal from './components/MassImportModal/MassImportModal';
@@ -98,9 +104,12 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     setTrue: showMassImportModal,
     setFalse: closeMassImportModal,
   } = useBoolean();
+
   const [trackerSyncDialogVisible, setTrackerSyncDialogVisible] =
     useState(false);
-  const [trackerSyncType, setTrackerSyncType] = useState('from');
+  const [trackerSyncType, setTrackerSyncType] = useState<'from' | 'to' | 'all'>(
+    'from',
+  );
   const handleClearSearchbar = () => {
     setSearchText('');
   };
@@ -110,6 +119,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     {},
   );
   const [visibleNovelIds, setVisibleNovelIds] = useState<number[]>([]); // Track visible novels for select all
+  const [currentCategoryIndex, setCurrentCategoryIndex] = useState(-1); // Track category changes
 
   const currentNovels = useMemo(() => {
     if (!categories.length) return [];
@@ -117,6 +127,15 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     const ids = categories[index].novelIds;
     return library.filter(l => ids.includes(l.id));
   }, [categories, index, library]);
+
+  // Clear selection when switching categories
+  useEffect(() => {
+    if (currentCategoryIndex !== -1 && currentCategoryIndex !== index) {
+      setSelectedNovelIds([]);
+      setVisibleNovelIds([]); // Clear visible novel IDs to prevent stale data
+    }
+    setCurrentCategoryIndex(index);
+  }, [index, currentCategoryIndex]);
 
   useBackHandler(() => {
     if (selectedNovelIds.length) {
@@ -168,8 +187,24 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
     };
   }, [updateCategoryCounts]);
 
+  // Listen for plugin filter changes to update category counts
   useEffect(() => {
-    const generateSyncReport = (results, type) => {
+    const listener = MMKVStorage.addOnValueChangedListener(key => {
+      if (
+        key === 'LIBRARY_HIDDEN_PLUGINS' ||
+        key === 'LIBRARY_PLUGIN_FILTER_KEY'
+      ) {
+        // Use setTimeout to avoid potential race conditions
+        setTimeout(() => {
+          updateCategoryCounts();
+        }, 100);
+      }
+    });
+    return () => listener.remove();
+  }, [updateCategoryCounts]);
+
+  useEffect(() => {
+    const generateSyncReport = (results: any, type: string) => {
       const timestamp = new Date().toLocaleString();
       let report = `Tracker Sync Report (${type.toUpperCase()})\n`;
       report += `Generated: ${timestamp}\n\n`;
@@ -184,7 +219,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         trackerErrors: 0,
       };
 
-      results.novels?.forEach(result => {
+      results.novels?.forEach((result: any) => {
         if (result.error) {
           stats.errors++;
         } else {
@@ -198,7 +233,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           let hasTrackerChanges = false;
           let hasTrackerErrors = false;
 
-          result.trackerChanges?.forEach(change => {
+          result.trackerChanges?.forEach((change: any) => {
             if (change.error) {
               hasTrackerErrors = true;
               stats.trackerErrors++;
@@ -222,7 +257,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             (!result.trackerChanges ||
               result.trackerChanges.length === 0 ||
               result.trackerChanges.every(
-                c => c.oldProgress === c.newProgress && !c.error,
+                (c: any) => c.oldProgress === c.newProgress && !c.error,
               ))
           ) {
             stats.skipped++;
@@ -242,7 +277,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       report += `Novel errors: ${stats.errors}\n\n`;
 
       report += 'DETAILS:\n';
-      results.novels?.forEach((result, resultIndex) => {
+      results.novels?.forEach((result: any, resultIndex: number) => {
         let hasActualChanges = false;
 
         if (
@@ -254,7 +289,8 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
 
         if (
           result.trackerChanges?.some(
-            change => change.error || change.oldProgress !== change.newProgress,
+            (change: any) =>
+              change.error || change.oldProgress !== change.newProgress,
           )
         ) {
           hasActualChanges = true;
@@ -280,7 +316,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             report += `   📱 App: ${result.appChange.oldProgress} → ${result.appChange.newProgress} ${appIcon}\n`;
           }
 
-          result.trackerChanges?.forEach(change => {
+          result.trackerChanges?.forEach((change: any) => {
             if (change.error) {
               report += `   ❌ ${change.tracker}: Error - ${change.error}\n`;
             } else if (change.oldProgress !== change.newProgress) {
@@ -300,12 +336,12 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           Clipboard.setStringAsync(report);
           const novels = task.meta.result.novels || [];
           const appUpdated = novels.filter(
-            n =>
+            (n: any) =>
               n.appChange &&
               n.appChange.oldProgress !== n.appChange.newProgress,
           ).length;
           const totalErrors = novels.filter(
-            n => n.error || n.trackerChanges?.some(c => c.error),
+            (n: any) => n.error || n.trackerChanges?.some((c: any) => c.error),
           ).length;
           showToast(
             `📥 Sync: 📱${appUpdated} ❌${totalErrors} | Report copied`,
@@ -319,19 +355,22 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           Clipboard.setStringAsync(report);
           const novels = task.meta.result.novels || [];
           const trackersUpdated = novels.filter(
-            n =>
+            (n: any) =>
               n.trackerChanges &&
-              n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+              n.trackerChanges.some(
+                (c: any) => c.oldProgress !== c.newProgress,
+              ),
           ).length;
           const totalTrackerChanges = novels.reduce(
-            (count, n) =>
+            (count: number, n: any) =>
               count +
-              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
-                .length || 0),
+              (n.trackerChanges?.filter(
+                (c: any) => c.oldProgress !== c.newProgress,
+              ).length || 0),
             0,
           );
           const totalErrors = novels.filter(
-            n => n.error || n.trackerChanges?.some(c => c.error),
+            (n: any) => n.error || n.trackerChanges?.some((c: any) => c.error),
           ).length;
           showToast(
             `📤 Sync: 📚${trackersUpdated} (${totalTrackerChanges}) ❌${totalErrors} | Report copied`,
@@ -345,24 +384,27 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           Clipboard.setStringAsync(report);
           const novels = task.meta.result.novels || [];
           const appUpdated = novels.filter(
-            n =>
+            (n: any) =>
               n.appChange &&
               n.appChange.oldProgress !== n.appChange.newProgress,
           ).length;
           const trackersUpdated = novels.filter(
-            n =>
+            (n: any) =>
               n.trackerChanges &&
-              n.trackerChanges.some(c => c.oldProgress !== c.newProgress),
+              n.trackerChanges.some(
+                (c: any) => c.oldProgress !== c.newProgress,
+              ),
           ).length;
           const totalTrackerChanges = novels.reduce(
-            (count, n) =>
+            (count: number, n: any) =>
               count +
-              (n.trackerChanges?.filter(c => c.oldProgress !== c.newProgress)
-                .length || 0),
+              (n.trackerChanges?.filter(
+                (c: any) => c.oldProgress !== c.newProgress,
+              ).length || 0),
             0,
           );
           const totalErrors = novels.filter(
-            n => n.error || n.trackerChanges?.some(c => c.error),
+            (n: any) => n.error || n.trackerChanges?.some((c: any) => c.error),
           ).length;
           showToast(
             `🔄 Sync: 📱${appUpdated} 📚${trackersUpdated} (${totalTrackerChanges}) ❌${totalErrors} | Report copied`,
@@ -375,6 +417,13 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       syncObservers.forEach(unsub => unsub());
     };
   }, [refetchLibrary]);
+
+  // Refresh library when screen is focused (e.g., returning from Novel screen)
+  useFocusEffect(
+    useCallback(() => {
+      refetchLibrary();
+    }, [refetchLibrary]),
+  );
 
   useEffect(
     () =>
@@ -403,7 +452,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       });
     }
   }
-  const showTrackerSyncConfirmation = syncType => {
+  const showTrackerSyncConfirmation = (syncType: 'from' | 'to' | 'all') => {
     setTrackerSyncType(syncType);
     setTrackerSyncDialogVisible(true);
   };
@@ -512,7 +561,14 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
             ? [
                 {
                   iconName: 'select-all',
-                  onPress: () => setSelectedNovelIds(visibleNovelIds), // Use visible novels instead of currentNovels
+                  onPress: () => {
+                    // Use visibleNovelIds if available and not empty, otherwise fall back to currentNovels
+                    const novelsToSelect =
+                      visibleNovelIds.length > 0
+                        ? visibleNovelIds
+                        : currentNovels.map(novel => novel.id);
+                    setSelectedNovelIds(novelsToSelect);
+                  },
                 },
               ]
             : [
@@ -524,32 +580,48 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
         }
         menuButtons={[
           {
+            title: getString('categories.header'),
+            onPress: () =>
+              navigation.navigate('MoreStack', {
+                screen: 'Categories',
+              }),
+          },
+          {
             title: getString('libraryScreen.extraMenu.updateLibrary'),
             onPress: () =>
               ServiceManager.manager.addTask({
                 name: 'UPDATE_LIBRARY',
+                data: undefined, // Update all categories
               }),
           },
           {
             title: getString('libraryScreen.extraMenu.updateCategory'),
-            onPress: () =>
-              //2 = local category
-              categories[index]?.id !== 2 &&
+            onPress: () => {
+              // Skip local category (id = 2)
+              if (categories[index]?.id === 2) {
+                showToast('Cannot update local category');
+                return;
+              }
               ServiceManager.manager.addTask({
                 name: 'UPDATE_LIBRARY',
                 data: {
                   categoryId: categories[index]?.id,
                   categoryName: categories[index]?.name,
                 },
-              }),
+              });
+            },
           },
           {
             title: getString('libraryScreen.extraMenu.importEpub'),
             onPress: pickAndImport,
           },
           {
-            title: getString('libraryScreen.extraMenu.massImport'),
+            title: 'Mass Import from URLs',
             onPress: showMassImportModal,
+          },
+          {
+            title: 'Refresh Library',
+            onPress: () => refetchLibrary(),
           },
           {
             title: getString('libraryScreen.extraMenu.openRandom'),
@@ -673,6 +745,7 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
       <LibraryBottomSheet
         bottomSheetRef={bottomSheetRef}
         style={{ marginLeft: leftInset, marginRight: rightInset }}
+        categoryId={categories[index]?.id}
       />
       <Actionbar
         viewStyle={{ paddingLeft: leftInset, paddingRight: rightInset }}
@@ -741,18 +814,293 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
                   setSelectedNovelIds([]);
                 },
               },
+            ],
+          },
+          {
+            icon: 'notification-clear-all',
+            menuItems: [
+              {
+                icon: 'text-box-remove',
+                title: 'Clear unread chapters',
+                onPress: async () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear unread chapters',
+                    `Delete all unread chapter entries for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library
+                            .filter(n => selectedNovelIds.includes(n.id))
+                            .map(n => ({ pluginId: n.pluginId, id: n.id }));
+
+                          await batchDeleteChaptersByCriteria(selectedNovels, {
+                            unread: true,
+                          });
+
+                          // Small delay to ensure triggers have executed
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast('Cleared unread chapters');
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                icon: 'text-box-check',
+                title: 'Clear read chapters',
+                onPress: async () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear read chapters',
+                    `Delete all read chapter entries for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library
+                            .filter(n => selectedNovelIds.includes(n.id))
+                            .map(n => ({ pluginId: n.pluginId, id: n.id }));
+
+                          await batchDeleteChaptersByCriteria(selectedNovels, {
+                            read: true,
+                          });
+
+                          // Small delay to ensure triggers have executed
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast('Cleared read chapters');
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                icon: 'cloud-off-outline',
+                title: 'Clear not downloaded',
+                onPress: async () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear not downloaded',
+                    `Delete all non-downloaded chapter entries for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library
+                            .filter(n => selectedNovelIds.includes(n.id))
+                            .map(n => ({ pluginId: n.pluginId, id: n.id }));
+
+                          await batchDeleteChaptersByCriteria(selectedNovels, {
+                            notDownloaded: true,
+                          });
+
+                          // Small delay to ensure triggers have executed
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast('Cleared not downloaded chapters');
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                icon: 'text-box-minus-outline',
+                title: 'Clear unread & undownloaded',
+                onPress: async () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear unread & undownloaded',
+                    `Delete all unread AND non-downloaded chapter entries for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library
+                            .filter(n => selectedNovelIds.includes(n.id))
+                            .map(n => ({ pluginId: n.pluginId, id: n.id }));
+
+                          await batchDeleteChaptersByCriteria(selectedNovels, {
+                            unread: true,
+                            notDownloaded: true,
+                          });
+
+                          // Small delay to ensure triggers have executed
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast('Cleared unread & undownloaded chapters');
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+            ],
+          },
+          {
+            icon: 'refresh',
+            onPress: () => {
+              const ids = library
+                .filter(n => selectedNovelIds.includes(n.id) && !n.isLocal)
+                .map(n => n.id);
+              if (ids.length) {
+                ServiceManager.manager.addTask({
+                  name: 'UPDATE_SELECTED',
+                  data: { novelIds: ids },
+                });
+                showToast(`Updating ${ids.length} novels`);
+              }
+              setSelectedNovelIds([]);
+            },
+          },
+          {
+            icon: 'delete-outline',
+            menuItems: [
               {
                 icon: 'download-off',
                 title: 'Delete downloads',
                 onPress: async () => {
-                  const selectedNovels = library.filter(
-                    n => selectedNovelIds.includes(n.id) && !n.isLocal,
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Delete downloads',
+                    `Delete downloaded files for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.delete'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library.filter(n =>
+                            selectedNovelIds.includes(n.id),
+                          );
+                          for (const novel of selectedNovels) {
+                            await deleteChaptersByCriteria(
+                              novel.pluginId,
+                              novel.id,
+                              {
+                                downloaded: true,
+                              },
+                            );
+                          }
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast(
+                            `Deleted downloads for ${selectedNovelIds.length} novels`,
+                          );
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
                   );
-                  // TODO: Implement deleteChapters batch function
-                  showToast(
-                    `Deleting downloads for ${selectedNovels.length} novels`,
+                },
+              },
+              {
+                icon: 'image-off-outline',
+                title: 'Delete covers',
+                onPress: () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Delete Covers',
+                    `Delete covers for ${selectedNovelIds.length} novel(s)?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.delete'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedNovels = library.filter(n =>
+                            selectedNovelIds.includes(n.id),
+                          );
+                          for (const novel of selectedNovels) {
+                            if (novel.cover) {
+                              await deleteNovelCover(novel);
+                            }
+                          }
+                          await new Promise(resolve =>
+                            setTimeout(resolve, 100),
+                          );
+                          showToast(
+                            `Deleted ${
+                              selectedNovels.filter(n => n.cover).length
+                            } covers`,
+                          );
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
                   );
-                  setSelectedNovelIds([]);
+                },
+              },
+              {
+                icon: 'delete',
+                title: 'Remove from library',
+                onPress: () => {
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    getString('browseScreen.removeFromLibrary'),
+                    `Are you sure you want to remove ${selectedNovelIds.length} novel(s) from library?`,
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.remove'),
+                        style: 'destructive',
+                        onPress: () => {
+                          removeNovelsFromLibrary(selectedNovelIds);
+                          setSelectedNovelIds([]);
+                          refetchLibrary();
+                        },
+                      },
+                    ],
+                  );
                 },
               },
             ],
@@ -764,33 +1112,57 @@ const LibraryScreen = ({ navigation }: LibraryScreenProps) => {
           {
             icon: 'check',
             onPress: async () => {
-              const promises: Promise<any>[] = [];
-              selectedNovelIds.map(id =>
-                promises.push(markAllChaptersRead(id)),
+              const { Alert } = require('react-native');
+              Alert.alert(
+                'Mark all read',
+                `Mark all chapters as read for ${selectedNovelIds.length} novel(s)?`,
+                [
+                  {
+                    text: getString('common.cancel'),
+                    style: 'cancel',
+                  },
+                  {
+                    text: 'Mark read',
+                    onPress: async () => {
+                      const promises: Promise<any>[] = [];
+                      selectedNovelIds.map(id =>
+                        promises.push(markAllChaptersRead(id)),
+                      );
+                      await Promise.all(promises);
+                      setSelectedNovelIds([]);
+                      refetchLibrary();
+                    },
+                  },
+                ],
               );
-              await Promise.all(promises);
-              setSelectedNovelIds([]);
-              refetchLibrary();
             },
           },
           {
             icon: 'check-outline',
             onPress: async () => {
-              const promises: Promise<any>[] = [];
-              selectedNovelIds.map(id =>
-                promises.push(markAllChaptersUnread(id)),
+              const { Alert } = require('react-native');
+              Alert.alert(
+                'Mark all unread',
+                `Mark all chapters as unread for ${selectedNovelIds.length} novel(s)?`,
+                [
+                  {
+                    text: getString('common.cancel'),
+                    style: 'cancel',
+                  },
+                  {
+                    text: 'Mark unread',
+                    onPress: async () => {
+                      const promises: Promise<any>[] = [];
+                      selectedNovelIds.map(id =>
+                        promises.push(markAllChaptersUnread(id)),
+                      );
+                      await Promise.all(promises);
+                      setSelectedNovelIds([]);
+                      refetchLibrary();
+                    },
+                  },
+                ],
               );
-              await Promise.all(promises);
-              setSelectedNovelIds([]);
-              refetchLibrary();
-            },
-          },
-          {
-            icon: 'delete-outline',
-            onPress: () => {
-              removeNovelsFromLibrary(selectedNovelIds);
-              setSelectedNovelIds([]);
-              refetchLibrary();
             },
           },
         ]}

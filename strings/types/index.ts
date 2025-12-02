@@ -132,6 +132,7 @@ export interface StringMap {
   'browseScreen.filterPresets.deletePreset': 'string';
   'browseScreen.importSelected': 'string';
   'browseScreen.urlsCopiedAndImported': 'string';
+  'browseScreen.confirmLeave': 'string';
   'browseSettings': 'string';
   'browseSettingsScreen.concurrentSearches': 'string';
   'browseSettingsScreen.multi': 'string';
@@ -230,6 +231,7 @@ export interface StringMap {
   'common.newUpdateAvailable': 'string';
   'common.ok': 'string';
   'common.pause': 'string';
+  'common.paused': 'string';
   'common.preparing': 'string';
   'common.remove': 'string';
   'common.reset': 'string';
@@ -247,6 +249,7 @@ export interface StringMap {
   'common.sort': 'string';
   'common.submit': 'string';
   'common.loading': 'string';
+  'common.loadMore': 'string';
   'common.warning': 'string';
   'webview.refresh': 'string';
   'webview.share': 'string';

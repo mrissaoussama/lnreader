@@ -126,7 +126,7 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
                     )
                   : item.novels
               }
-              extraData={inActivity.length}
+              extraData={Object.keys(inActivity).length}
               ListEmptyComponent={
                 <Text style={[styles.listEmpty, { color: noResultsColor }]}>
                   {getString('sourceScreen.noResultsFound')}
@@ -164,7 +164,7 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
                       })
                     }
                     theme={theme}
-                    onLongPress={async () => {
+                    onLongPress={async _ => {
                       setInActivity(prev => ({
                         ...prev,
                         [novelItem.path]: true,
@@ -180,8 +180,8 @@ const GlobalSearchSourceResults: React.FC<{ item: GlobalSearchResult }> = ({
                         [novelItem.path]: false,
                       }));
                     }}
-                    selectedNovelIds={[]}
                     isSelected={false}
+                    selectionMode={false}
                   />
                 );
               }}

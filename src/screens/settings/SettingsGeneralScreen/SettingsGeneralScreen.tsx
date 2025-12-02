@@ -25,6 +25,8 @@ import NovelBadgesModal from './modals/NovelBadgesModal';
 import { NavigationState } from '@react-navigation/native';
 import { getString } from '@strings/translations';
 import SettingSwitch from '../components/SettingSwitch';
+import LibraryMatchingRuleModal from '@screens/browse/settings/modals/LibraryMatchingRuleModal';
+import NovelTitleLinesModal from './modals/NovelTitleLinesModal';
 
 const SKIP_UPDATE_THRESHOLD_KEY = 'SKIP_UPDATE_THRESHOLD';
 
@@ -41,10 +43,22 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
   const [updateOnPullRefresh, setUpdateOnPullRefresh] = React.useState<boolean>(
     MMKVStorage.getBoolean('UPDATE_ON_PULL_REFRESH_ENABLED') ?? true,
   );
+  const [resumeDownloadAfter, setResumeDownloadAfter] = React.useState<number>(
+    MMKVStorage.getNumber('RESUME_DOWNLOAD_AFTER') || 60,
+  );
 
   const handleSkipThresholdChange = (value: string) => {
     setSkipUpdateThreshold(value);
     MMKVStorage.set(SKIP_UPDATE_THRESHOLD_KEY, value);
+  };
+
+  const handleResumeDownloadAfterChange = () => {
+    const options = [0, 5, 10, 30, 60];
+    const nextIndex =
+      (options.indexOf(resumeDownloadAfter) + 1) % options.length;
+    const newValue = options[nextIndex];
+    setResumeDownloadAfter(newValue);
+    MMKVStorage.set('RESUME_DOWNLOAD_AFTER', newValue);
   };
 
   const getSkipThresholdLabel = () => {
@@ -71,6 +85,7 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
     showUnreadBadges = true,
     sortOrder = LibrarySortOrder.DateAdded_DESC,
     libraryLoadLimit = 50,
+    novelTitleLines = 2,
   } = useLibrarySettings();
 
   const sortOrderDisplay: string[] = sortOrder.split(' ');
@@ -91,6 +106,7 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
     refreshNovelMetadata,
     disableHapticFeedback,
     useLibraryFAB,
+    novelMatching,
     setAppSettings,
   } = useAppSettings();
 
@@ -121,6 +137,11 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
   const gridSizeModalRef = useBoolean();
 
   /**
+   * Novel Title Lines Modal
+   */
+  const novelTitleLinesModalRef = useBoolean();
+
+  /**
    * Library Load Limit Modal
    */
   const libraryLoadLimitModalRef = useBoolean();
@@ -138,6 +159,12 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
    * Chapter Sort Modal
    */
   const defaultChapterSortModal = useBoolean();
+
+  /**
+   * Library Matching Rule Modal
+   */
+  const libraryMatchingRuleModal = useBoolean();
+
   return (
     <SafeAreaView excludeTop>
       <Appbar
@@ -165,6 +192,14 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
               getString('generalSettingsScreen.itemsPerRow')
             }
             onPress={gridSizeModalRef.setTrue}
+            theme={theme}
+          />
+          <List.Item
+            title="Novel Title Lines"
+            description={`${novelTitleLines} line${
+              novelTitleLines > 1 ? 's' : ''
+            }`}
+            onPress={novelTitleLinesModalRef.setTrue}
             theme={theme}
           />
           <List.Item
@@ -219,6 +254,50 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
             }}
             theme={theme}
           />
+          <List.Divider theme={theme} />
+          <List.SubHeader theme={theme}>Library Matching</List.SubHeader>
+          <SettingSwitch
+            label="Enable Library Matching"
+            description="Find duplicate novels in library"
+            value={novelMatching?.enabled ?? false}
+            onPress={() =>
+              setAppSettings({
+                novelMatching: {
+                  ...novelMatching,
+                  enabled: !novelMatching?.enabled,
+                },
+              })
+            }
+            theme={theme}
+          />
+          {novelMatching?.enabled && (
+            <>
+              <SettingSwitch
+                label="Show Match Badges"
+                description="Display badges on matching novels"
+                value={novelMatching?.showBadges !== false}
+                onPress={() =>
+                  setAppSettings({
+                    novelMatching: {
+                      ...novelMatching,
+                      showBadges: !novelMatching?.showBadges,
+                    },
+                  })
+                }
+                theme={theme}
+              />
+              <List.Item
+                title="Matching Rules"
+                description={`Plugin: ${
+                  novelMatching?.pluginRule || 'normalized-contains'
+                }, Library: ${
+                  novelMatching?.libraryRule || 'normalized-contains'
+                }`}
+                onPress={libraryMatchingRuleModal.setTrue}
+                theme={theme}
+              />
+            </>
+          )}
           <List.Divider theme={theme} />
           <List.SubHeader theme={theme}>
             {getString('generalSettingsScreen.novel')}
@@ -295,6 +374,16 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
             }
             theme={theme}
           />
+          <List.Item
+            title={getString('generalSettingsScreen.resumeDownloadAfter')}
+            description={
+              resumeDownloadAfter === 0
+                ? getString('common.off')
+                : resumeDownloadAfter + 's'
+            }
+            onPress={handleResumeDownloadAfterChange}
+            theme={theme}
+          />
           <List.Divider theme={theme} />
           <List.SubHeader theme={theme}>
             {getString('generalSettings')}
@@ -344,6 +433,12 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
         hideGridSizeModal={gridSizeModalRef.setFalse}
         theme={theme}
       />
+      <NovelTitleLinesModal
+        novelTitleLines={novelTitleLines}
+        visible={novelTitleLinesModalRef.value}
+        onDismiss={novelTitleLinesModalRef.setFalse}
+        theme={theme}
+      />
       <LibraryLoadLimitModal
         libraryLoadLimit={libraryLoadLimit}
         libraryLoadLimitModalVisible={libraryLoadLimitModalRef.value}
@@ -358,6 +453,11 @@ const GenralSettings: React.FC<GenralSettingsProps> = ({ navigation }) => {
       <NovelSortModal
         novelSortModalVisible={novelSortModalRef.value}
         hideNovelSortModal={novelSortModalRef.setFalse}
+        theme={theme}
+      />
+      <LibraryMatchingRuleModal
+        visible={libraryMatchingRuleModal.value}
+        onDismiss={libraryMatchingRuleModal.setFalse}
         theme={theme}
       />
     </SafeAreaView>

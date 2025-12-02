@@ -4,7 +4,7 @@ import {
   updateNovelHasMatch,
 } from '@database/queries/LibraryQueries';
 import { getMMKVObject } from '@utils/mmkv/mmkv';
-import { BROWSE_SETTINGS, BrowseSettings } from '@hooks/persisted/useSettings';
+import { APP_SETTINGS, AppSettings } from '@hooks/persisted/useSettings';
 import { getAllNovels, getNovelByPath } from '@database/queries/NovelQueries';
 
 export interface LibraryMatch {
@@ -39,18 +39,20 @@ export const recalculateAllLibraryMatches = async () => {
 };
 
 export const isLibraryMatchingEnabled = (): boolean => {
-  const browseSettings = getMMKVObject(BROWSE_SETTINGS) as BrowseSettings;
-  const novelMatching = browseSettings?.novelMatching;
+  const appSettings = getMMKVObject(APP_SETTINGS) as AppSettings;
+  const novelMatching = appSettings?.novelMatching;
   return novelMatching?.enabled === true;
 };
 
 export const shouldShowBadges = (): boolean => {
-  const browseSettings = getMMKVObject(BROWSE_SETTINGS) as BrowseSettings;
-  const novelMatching = browseSettings?.novelMatching || {
-    enabled: false,
-    showBadges: true,
-  };
-  return novelMatching?.enabled === true && novelMatching?.showBadges !== false;
+  const appSettings = getMMKVObject(APP_SETTINGS) as AppSettings;
+  const novelMatching = appSettings?.novelMatching;
+
+  if (!novelMatching?.enabled) {
+    return false;
+  }
+  // showBadges defaults to true when matching is enabled
+  return novelMatching.showBadges !== false;
 };
 
 export const findLibraryMatches = async (
@@ -64,14 +66,28 @@ export const findLibraryMatches = async (
   if (!isLibraryMatchingEnabled()) {
     return [];
   }
-  return findLibraryMatchesAsync(
+
+  // Validate the search title before proceeding
+  if (
+    !searchTitle ||
+    typeof searchTitle !== 'string' ||
+    searchTitle.trim().length === 0
+  ) {
+    return [];
+  }
+
+  // const variations = generateVariations(searchTitle);
+  const allAlternatives = [...new Set([...searchTitleAlternatives])];
+
+  const results = await findLibraryMatchesAsync(
     searchTitle,
-    searchTitleAlternatives,
+    allAlternatives,
     rule,
     excludePluginId,
     excludePath,
     excludeNovelId,
   );
+  return results;
 };
 
 export const hasLibraryMatch = async (
@@ -86,15 +102,28 @@ export const hasLibraryMatch = async (
     return false;
   }
 
+  // Validate the search title before proceeding
+  if (
+    !searchTitle ||
+    typeof searchTitle !== 'string' ||
+    searchTitle.trim().length === 0
+  ) {
+    return false;
+  }
+
   if (excludePath && excludePluginId) {
     const novel = getNovelByPath(excludePath, excludePluginId);
     if (novel?.hasMatch) {
       return novel.hasMatch;
     }
   }
+
+  // const variations = generateVariations(searchTitle);
+  const allAlternatives = [...new Set([...searchTitleAlternatives])];
+
   const hasMatch = await hasLibraryMatchAsync(
     searchTitle,
-    searchTitleAlternatives,
+    allAlternatives,
     rule,
     excludePluginId,
     excludePath,

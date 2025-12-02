@@ -1,8 +1,8 @@
 import React, { useCallback, useRef, useState, useMemo } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Alert } from 'react-native';
 
 import { FAB } from 'react-native-paper';
-import { ErrorScreenV2, SafeAreaView, SearchbarV2 } from '@components/index';
+import { ErrorScreenV2, SafeAreaView, SearchbarV2, Button } from '@components';
 import NovelList from '@components/NovelList';
 import NovelCover from '@components/NovelCover';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
@@ -25,6 +25,8 @@ import { BrowseSourceScreenProps } from '@navigators/types';
 import { useLibraryContext } from '@components/Context/LibraryContext';
 import ServiceManager from '@services/ServiceManager';
 import MassImportModal from '@screens/library/components/MassImportModal/MassImportModal';
+import Pagination from '@components/Pagination/Pagination';
+import { DisplayModes } from '@screens/library/constants/constants';
 
 // Optimized novel item component to improve performance, no rerenders ect
 const OptimizedNovelItem = React.memo<{
@@ -87,9 +89,12 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
 
   const {
     isLoading,
+    isFetchingNextPage,
     novels,
     hasNextPage,
     fetchNextPage,
+    goToPage,
+    currentPage,
     error,
     filterValues,
     setFilters,
@@ -99,9 +104,12 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
 
   const {
     isSearching,
+    isFetchingNextPage: isFetchingSearchNextPage,
     searchResults,
     searchSource,
     searchNextPage,
+    searchGoToPage,
+    currentPage: searchPage,
     hasNextSearchPage,
     clearSearchResults,
     searchError,
@@ -116,11 +124,32 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     useAdvancedFilters(isAnyFilterOpen);
 
   const novelList = searchResults.length > 0 ? searchResults : novels;
+
+  // Deduplicate novels based on unique key before filtering
+  const deduplicatedNovelList = useMemo(() => {
+    const seen = new Set<string>();
+    return novelList.filter(item => {
+      const np = require('@utils/urlUtils').normalizePath(item.path || '');
+      const key = `${pluginId}-${np}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [novelList, pluginId]);
+
   const filteredNovelList = useMemo(
-    () => applyFiltersToList(novelList),
-    [applyFiltersToList, novelList],
+    () => applyFiltersToList(deduplicatedNovelList),
+    [applyFiltersToList, deduplicatedNovelList],
   );
   const errorMessage = error || searchError;
+  const showLoadMore =
+    !disableInfiniteScroll &&
+    !isLoading &&
+    !isSearching &&
+    !errorMessage &&
+    (searchText ? hasNextSearchPage : hasNextPage);
 
   const { searchText, setSearchText, clearSearchbar } = useSearch();
   const onChangeText = (text: string) => setSearchText(text);
@@ -158,7 +187,50 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     useState(false);
   const [massImportUrls, setMassImportUrls] = useState<string>('');
 
-  const { hideInLibraryItems, enableAdvancedFilters } = useBrowseSettings();
+  const {
+    hideInLibraryItems,
+    enableAdvancedFilters,
+    disableInfiniteScroll,
+    displayMode,
+    novelsPerRow,
+    setBrowseSettings,
+    confirmPluginLeave,
+  } = useBrowseSettings();
+
+  React.useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', e => {
+      if (!confirmPluginLeave) {
+        return;
+      }
+
+      // Prevent default behavior of leaving the screen
+      e.preventDefault();
+
+      // Prompt the user before leaving the screen
+      setTimeout(() => {
+        Alert.alert(
+          getString('common.confirm'),
+          getString('browseScreen.confirmLeave'),
+          [
+            {
+              text: getString('common.cancel'),
+              style: 'cancel',
+              onPress: () => {},
+            },
+            {
+              text: getString('common.confirm'),
+              style: 'destructive',
+              // If the user confirmed, then we dispatch the action we blocked earlier
+              // This will continue the action that had triggered the removal of the screen
+              onPress: () => navigation.dispatch(e.data.action),
+            },
+          ],
+        );
+      }, 100);
+    });
+
+    return unsubscribe;
+  }, [navigation, confirmPluginLeave]);
 
   const navigateToNovel = useCallback(
     (item: NovelItem | NovelInfo) =>
@@ -219,6 +291,14 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
   const clearAllSelections = useCallback(() => {
     setSelectedItems([]);
   }, []);
+
+  const toggleDisplayMode = () => {
+    const nextMode =
+      displayMode === DisplayModes.List
+        ? DisplayModes.Comfortable
+        : DisplayModes.List;
+    setBrowseSettings({ displayMode: nextMode });
+  };
 
   React.useEffect(() => {
     if (isMultiSelectMode && selectedItems.length > 0) {
@@ -308,6 +388,13 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                     ]
                   : []),
                 {
+                  iconName:
+                    displayMode === DisplayModes.List
+                      ? 'view-grid-outline'
+                      : 'view-list-outline',
+                  onPress: toggleDisplayMode,
+                },
+                {
                   iconName: 'checkbox-multiple-outline',
                   onPress: toggleMultiSelectMode,
                 },
@@ -319,7 +406,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
 
       {isLoading || isSearching ? (
         <SourceScreenSkeletonLoading theme={theme} />
-      ) : errorMessage || filteredNovelList.length === 0 ? (
+      ) : errorMessage && filteredNovelList.length === 0 ? (
         <ErrorScreenV2
           error={errorMessage || getString('sourceScreen.noResultsFound')}
           actions={[
@@ -338,12 +425,19 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         />
       ) : (
         <NovelList
-          data={filteredNovelList.filter(
-            item => !hideInLibraryItems || !novelInLibrary(pluginId, item.path),
-          )}
+          data={filteredNovelList.filter(item => {
+            if (!hideInLibraryItems) return true;
+            const { normalizePath } = require('@utils/urlUtils');
+            const normalizedPath = normalizePath(item.path || '');
+            return !novelInLibrary(pluginId, normalizedPath);
+          })}
           inSource
+          displayMode={displayMode}
+          novelsPerRow={novelsPerRow}
           renderItem={({ item }) => {
-            const inLibrary = novelInLibrary(pluginId, item.path);
+            const { normalizePath } = require('@utils/urlUtils');
+            const normalizedPath = normalizePath(item.path || '');
+            const inLibrary = novelInLibrary(pluginId, normalizedPath);
 
             return (
               <OptimizedNovelItem
@@ -352,7 +446,13 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                 libraryStatus={inLibrary}
                 inActivity={inActivity[item.path]}
                 isMultiSelectMode={isMultiSelectMode}
-                onPress={() => navigateToNovel(item)}
+                onPress={() => {
+                  if (isMultiSelectMode) {
+                    toggleItemSelection(item);
+                  } else {
+                    navigateToNovel(item);
+                  }
+                }}
                 onToggleSelection={() => toggleItemSelection(item)}
                 isSelected={
                   isMultiSelectMode &&
@@ -361,23 +461,28 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                   )
                 }
                 addSkeletonLoading={
-                  (hasNextPage && !searchText) ||
-                  (hasNextSearchPage && Boolean(searchText))
+                  (searchText
+                    ? isFetchingSearchNextPage
+                    : isFetchingNextPage) &&
+                  ((hasNextPage && !searchText) ||
+                    (hasNextSearchPage && Boolean(searchText)))
                 }
                 onLongPress={async () => {
                   if (isMultiSelectMode) {
                     toggleItemSelection(item);
                   } else {
                     setInActivity(prev => ({ ...prev, [item.path]: true }));
-                    await switchNovelToLibrary(item.path, pluginId);
+                    await switchNovelToLibrary(normalizedPath, pluginId);
                     setInActivity(prev => ({ ...prev, [item.path]: false }));
                   }
                 }}
-                match={libraryMatches[item.path]}
+                match={libraryMatches[normalizedPath]}
               />
             );
           }}
           onEndReached={() => {
+            if (disableInfiniteScroll) return;
+
             if (searchText) {
               if (hasNextSearchPage) {
                 searchNextPage();
@@ -387,10 +492,36 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
             }
           }}
           onEndReachedThreshold={1.5}
+          ListFooterComponent={
+            !isLoading && !isSearching && filteredNovelList.length > 0 ? (
+              disableInfiniteScroll ? (
+                <Pagination
+                  page={searchText ? searchPage : currentPage}
+                  onPageChange={page =>
+                    searchText ? searchGoToPage(page) : goToPage(page)
+                  }
+                  isFirstPage={(searchText ? searchPage : currentPage) === 1}
+                  isLastPage={searchText ? !hasNextSearchPage : !hasNextPage}
+                />
+              ) : showLoadMore ? (
+                <Button
+                  title={getString('common.loadMore')}
+                  onPress={() => {
+                    if (searchText) {
+                      searchNextPage();
+                    } else {
+                      fetchNextPage();
+                    }
+                  }}
+                  style={{ margin: 16 }}
+                />
+              ) : null
+            ) : null
+          }
         />
       )}
 
-      {/* Multi-select Import FAB */}
+      {/* Multi-select Import FAB - Only visible in multi-select mode with selections */}
       {isMultiSelectMode && selectedItems.length > 0 ? (
         <FAB
           icon={'import'}
@@ -411,7 +542,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
         />
       ) : null}
 
-      {/* Plugin Filter FAB */}
+      {/* Plugin Filter FAB - Only visible when NOT in multi-select mode */}
       {!showLatestNovels &&
       filterValues &&
       !searchText &&

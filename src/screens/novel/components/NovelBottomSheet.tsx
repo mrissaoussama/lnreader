@@ -13,6 +13,7 @@ import { overlay } from 'react-native-paper';
 import { BottomSheetModalMethods } from '@gorhom/bottom-sheet/lib/typescript/types';
 import { ThemeColors } from '@theme/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DisplayModes } from '@hooks/persisted/useNovel';
 
 interface ChaptersSettingsSheetProps {
   bottomSheetRef: React.RefObject<BottomSheetModalMethods | null>;
@@ -20,8 +21,11 @@ interface ChaptersSettingsSheetProps {
   sort: string;
   filter: string;
   theme: ThemeColors;
-  showChapterTitles: boolean;
-  setShowChapterTitles: (v: boolean) => void;
+  displayMode: DisplayModes;
+  setDisplayMode: (mode: DisplayModes) => void;
+  deleteChaptersByCriteria: (criteria: any) => void;
+  deleteAllDownloadedChapters: () => void;
+  clearAndRefreshChapters: () => void;
 }
 
 const ChaptersSettingsSheet = ({
@@ -30,8 +34,11 @@ const ChaptersSettingsSheet = ({
   sort,
   filter,
   theme,
-  showChapterTitles,
-  setShowChapterTitles,
+  displayMode,
+  setDisplayMode,
+  _deleteChaptersByCriteria,
+  _deleteAllDownloadedChapters,
+  _clearAndRefreshChapters,
 }: ChaptersSettingsSheetProps) => {
   const { left, right } = useSafeAreaInsets();
   const sortChapters = useCallback(
@@ -152,20 +159,26 @@ const ChaptersSettingsSheet = ({
     () => (
       <View style={styles.flex}>
         <Checkbox
-          status={showChapterTitles}
+          status={displayMode === DisplayModes.Title}
           label={getString('novelScreen.bottomSheet.displays.sourceTitle')}
-          onPress={() => setShowChapterTitles(true)}
+          onPress={() => setDisplayMode(DisplayModes.Title)}
           theme={theme}
         />
         <Checkbox
-          status={!showChapterTitles}
+          status={displayMode === DisplayModes.ChapterNumber}
           label={getString('novelScreen.bottomSheet.displays.chapterNumber')}
-          onPress={() => setShowChapterTitles(false)}
+          onPress={() => setDisplayMode(DisplayModes.ChapterNumber)}
+          theme={theme}
+        />
+        <Checkbox
+          status={displayMode === DisplayModes.Both}
+          label={getString('novelScreen.bottomSheet.displays.both')}
+          onPress={() => setDisplayMode(DisplayModes.Both)}
           theme={theme}
         />
       </View>
     ),
-    [setShowChapterTitles, showChapterTitles, theme],
+    [displayMode, setDisplayMode, theme],
   );
 
   const renderScene = SceneMap({

@@ -4,6 +4,7 @@ interface ReadDirResult {
   name: string;
   path: string;
   isDirectory: boolean; // int
+  size: number; // File size in bytes
 }
 
 export interface Spec extends TurboModule {

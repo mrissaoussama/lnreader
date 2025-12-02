@@ -113,7 +113,18 @@ export const useGlobalSearch = ({ defaultSearchText, pinnedOnly }: Props) => {
       );
 
       (async () => {
-        if (globalSearchConcurrency > 1) {
+        if (globalSearchConcurrency === 0) {
+          const promises = filteredSortedInstalledPlugins.map(async _plugin => {
+            if (!isMounted.current || lastSearch.current !== key) {
+              return;
+            }
+            await searchInPlugin(_plugin);
+            if (lastSearch.current === key) {
+              setProgress(prevState => prevState + 1 / pluginsToSearch.length);
+            }
+          });
+          await Promise.all(promises);
+        } else if (globalSearchConcurrency > 1) {
           for (const _plugin of filteredSortedInstalledPlugins) {
             while (running >= globalSearchConcurrency || !isFocused.current) {
               await new Promise(resolve => setTimeout(resolve, 100));

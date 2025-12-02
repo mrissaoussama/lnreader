@@ -56,6 +56,7 @@ export const createTables = () => {
   db.execSync('PRAGMA journal_mode = WAL');
   db.execSync('PRAGMA synchronous = NORMAL');
   db.execSync('PRAGMA temp_store = MEMORY');
+  db.execSync('PRAGMA mmap_size = 30000000000');
 
   let userVersion =
     db.getFirstSync<{ user_version: number }>('PRAGMA user_version')
@@ -140,6 +141,7 @@ export const recreateDBIndex = () => {
     db.execSync('PRAGMA synchronous = NORMAL');
     db.execSync('PRAGMA cache_size = 10000');
     db.execSync('PRAGMA temp_store = MEMORY');
+    db.execSync('PRAGMA mmap_size = 30000000000');
     db.execSync('PRAGMA busy_timeout = 5000');
     db.withTransactionSync(() => {
       db.runSync(dropNovelIndexQuery);

@@ -15,6 +15,7 @@ import EpubIconButton from './EpubIconButton';
 import { ChapterInfo, NovelInfo } from '@database/types';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { MaterialDesignIconName } from '@type/icon';
+import { showToast } from '@utils/showToast';
 
 const Menu = React.memo(
   ({
@@ -62,6 +63,7 @@ const NovelAppbar = ({
   isLocal,
   downloadChapters,
   deleteChapters,
+  _deleteChaptersByCriteria,
   showEditInfoModal,
   downloadCustomChapterModal,
   setCustomNovelCover,
@@ -76,6 +78,8 @@ const NovelAppbar = ({
   headerOpacity,
   openDeleteRangeModal,
   clearAndRefreshChapters,
+  deleteCover,
+  deleteAllDownloadedChapters,
 }: {
   novel: NovelInfo | undefined;
   chapters: ChapterInfo[];
@@ -83,6 +87,12 @@ const NovelAppbar = ({
   isLocal: boolean | undefined;
   downloadChapters: (amount: number | 'all' | 'unread') => void;
   deleteChapters: () => void;
+  deleteChaptersByCriteria: (criteria: {
+    downloaded?: boolean;
+    notDownloaded?: boolean;
+    read?: boolean;
+    unread?: boolean;
+  }) => void;
   showEditInfoModal: React.Dispatch<React.SetStateAction<boolean>>;
   downloadCustomChapterModal: () => void;
   setCustomNovelCover: () => Promise<void>;
@@ -97,6 +107,8 @@ const NovelAppbar = ({
   headerOpacity: SharedValue<number>;
   openDeleteRangeModal: () => void;
   clearAndRefreshChapters: () => void;
+  deleteCover: () => void;
+  deleteAllDownloadedChapters: () => void;
 }) => {
   const headerOpacityStyle = useAnimatedStyle(() => {
     const backgroundColor = interpolateColor(
@@ -253,15 +265,142 @@ const NovelAppbar = ({
                 },
               },
               {
-                label: 'View All Alternative Titles',
+                label: 'View Alternative Titles',
                 onPress: () => {
                   showAlternativeTitlesModal();
                 },
               },
+              ...(novel?.cover
+                ? [
+                    {
+                      label: 'Refresh Cover',
+                      onPress: setCustomNovelCover,
+                    },
+                    {
+                      label: 'Delete Cover',
+                      onPress: deleteCover,
+                    },
+                  ]
+                : [
+                    {
+                      label: 'Set Cover',
+                      onPress: setCustomNovelCover,
+                    },
+                  ]),
               {
-                label: 'Clear and Refresh Chapters',
+                label:
+                  getString('common.clear') +
+                  ' ' +
+                  getString('common.chapters'),
                 onPress: () => {
                   clearAndRefreshChapters();
+                },
+              },
+              {
+                label: 'Clear unread chapters',
+                onPress: () => {
+                  if (!novel) return;
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear unread chapters',
+                    'Delete all unread chapter entries from database?',
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const { deleteChaptersByCriteria } = await import(
+                            '@database/queries/ChapterQueries'
+                          );
+                          await deleteChaptersByCriteria(
+                            novel.pluginId,
+                            novel.id,
+                            { unread: true },
+                          );
+                          clearAndRefreshChapters();
+                          showToast('Cleared unread chapters');
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                label: 'Clear read chapters',
+                onPress: () => {
+                  if (!novel) return;
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear read chapters',
+                    'Delete all read chapter entries from database?',
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const { deleteChaptersByCriteria } = await import(
+                            '@database/queries/ChapterQueries'
+                          );
+                          await deleteChaptersByCriteria(
+                            novel.pluginId,
+                            novel.id,
+                            { read: true },
+                          );
+                          clearAndRefreshChapters();
+                          showToast('Cleared read chapters');
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                label: 'Clear not downloaded chapters',
+                onPress: () => {
+                  if (!novel) return;
+                  const { Alert } = require('react-native');
+                  Alert.alert(
+                    'Clear not downloaded',
+                    'Delete all non-downloaded chapter entries from database?',
+                    [
+                      {
+                        text: getString('common.cancel'),
+                        style: 'cancel',
+                      },
+                      {
+                        text: getString('common.clear'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          const { deleteChaptersByCriteria } = await import(
+                            '@database/queries/ChapterQueries'
+                          );
+                          await deleteChaptersByCriteria(
+                            novel.pluginId,
+                            novel.id,
+                            { notDownloaded: true },
+                          );
+                          clearAndRefreshChapters();
+                          showToast('Cleared not downloaded chapters');
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                label: getString(
+                  'novelScreen.bottomSheet.actions.deleteAllDownloads',
+                ),
+                onPress: () => {
+                  deleteAllDownloadedChapters();
                 },
               },
             ]}

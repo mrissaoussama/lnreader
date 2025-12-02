@@ -11,6 +11,7 @@ import { BackgroundTaskMetadata } from '@services/ServiceManager';
 import NativeFile from '@specs/NativeFile';
 import NativeZipArchive from '@specs/NativeZipArchive';
 import NativeEpub from '@specs/NativeEpub';
+import { StorageManager } from '@utils/StorageManager';
 
 const decodePath = (path: string) => {
   try {
@@ -55,7 +56,10 @@ const insertLocalNovel = async (
       author: author,
       artist: artist,
       summary: summary,
-      path: NOVEL_STORAGE + '/local/' + insertedNovel.lastInsertRowId,
+      path:
+        StorageManager.getNovelStorage() +
+        '/local/' +
+        insertedNovel.lastInsertRowId,
       cover: newCoverPath,
       name: name,
       inLibrary: true,
@@ -88,7 +92,7 @@ const insertLocalChapter = async (
     if (!chapterText) {
       return [];
     }
-    const novelDir = NOVEL_STORAGE + '/local/' + novelId;
+    const novelDir = StorageManager.getNovelStorage() + '/local/' + novelId;
     chapterText = chapterText.replace(
       /(href|src)=(["'])(.*?)\2/g,
       (_, $1, __, $3: string) => {
@@ -166,7 +170,7 @@ export const importEpub = async (
       }));
     }
   }
-  const novelDir = NOVEL_STORAGE + '/local/' + novelId;
+  const novelDir = StorageManager.getNovelStorage() + '/local/' + novelId;
 
   setMeta(meta => ({
     ...meta,

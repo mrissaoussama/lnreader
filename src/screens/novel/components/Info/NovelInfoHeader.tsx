@@ -56,6 +56,7 @@ interface NovelInfoHeaderProps {
   page?: string;
   setCustomNovelCover: () => Promise<void>;
   saveNovelCover: () => Promise<void>;
+  deleteCover: () => void;
   theme: ThemeColors;
   totalChapters?: number;
   trackerSheetRef: React.RefObject<BottomSheetModalMethods | null>;
@@ -87,6 +88,7 @@ const NovelInfoHeader = ({
   page,
   setCustomNovelCover,
   saveNovelCover,
+  deleteCover,
   theme,
   totalChapters,
   trackerSheetRef,
@@ -121,6 +123,7 @@ const NovelInfoHeader = ({
               isLoading ? showNotAvailable : setCustomNovelCover
             }
             saveNovelCover={isLoading ? showNotAvailable : saveNovelCover}
+            deleteCover={isLoading ? showNotAvailable : deleteCover}
           />
           <View style={styles.novelDetails}>
             <Row>

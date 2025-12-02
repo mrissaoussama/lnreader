@@ -17,6 +17,7 @@ import {
   NativeScrollEvent,
   RefreshControl,
   StyleSheet,
+  Text,
 } from 'react-native';
 import { SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ import { FlashList } from '@shopify/flash-list';
 import FileManager from '@specs/NativeFile';
 import { downloadFile } from '@plugins/helpers/fetch';
 import { StorageAccessFramework } from 'expo-file-system';
+import { DisplayModes } from '@hooks/persisted/useNovel';
 
 type NovelScreenListProps = {
   headerOpacity: SharedValue<number>;
@@ -40,6 +42,7 @@ type NovelScreenListProps = {
   selected: ChapterInfo[];
   setSelected: React.Dispatch<React.SetStateAction<ChapterInfo[]>>;
   getNextChapterBatch: () => void;
+  clearAndRefreshChapters: () => void;
   routeBaseNovel: {
     name: string;
     path: string;
@@ -50,6 +53,11 @@ type NovelScreenListProps = {
 
 const ListEmptyComponent = () => <ChapterListSkeleton />;
 
+const getVolume = (name: string) => {
+  const match = name.match(/(Volume|Vol\.?|Book) \d+/i);
+  return match ? match[0] : null;
+};
+
 const NovelScreenList = ({
   headerOpacity,
   listRef,
@@ -59,6 +67,7 @@ const NovelScreenList = ({
   selected,
   setSelected,
   getNextChapterBatch,
+  clearAndRefreshChapters,
 }: NovelScreenListProps) => {
   const {
     chapters,
@@ -71,8 +80,11 @@ const NovelScreenList = ({
     pages,
     setNovel,
     sortAndFilterChapters,
-    setShowChapterTitles,
+    setDisplayMode,
     updateChapter,
+    deleteChaptersByCriteria,
+    deleteAllDownloadedChapters,
+    deleteCover,
     novel: fetchedNovel,
     batchInformation,
     pageIndex,
@@ -99,7 +111,7 @@ const NovelScreenList = ({
   const {
     sort = defaultChapterSort,
     filter = '',
-    showChapterTitles = false,
+    displayMode = DisplayModes.Title,
   } = novelSettings;
 
   const theme = useTheme();
@@ -297,12 +309,46 @@ const NovelScreenList = ({
     }
   };
 
+  const data = React.useMemo(() => {
+    if (!chapters.length) return [];
+
+    // Check if we should group
+    const hasVolumes = chapters.some(c => getVolume(c.name));
+    if (!hasVolumes) return chapters;
+
+    const result: (
+      | ChapterInfo
+      | { type: 'header'; title: string; id: string }
+    )[] = [];
+    let currentVolume = '';
+
+    chapters.forEach(chapter => {
+      const volume = getVolume(chapter.name);
+      if (volume && volume !== currentVolume) {
+        currentVolume = volume;
+        result.push({ type: 'header', title: volume, id: `header_${volume}` });
+      }
+      result.push(chapter);
+    });
+
+    return result;
+  }, [chapters]);
+
+  const stickyHeaderIndices = React.useMemo(() => {
+    return data
+      .map((item, index) =>
+        'type' in item && item.type === 'header' ? index : null,
+      )
+      .filter((item): item is number => item !== null);
+  }, [data]);
+
   return (
     <>
       <FlashList
         ref={listRef}
         estimatedItemSize={64}
-        data={chapters}
+        data={data}
+        stickyHeaderIndices={stickyHeaderIndices}
         extraData={[
           chapters.length,
           selected.length,
@@ -316,6 +362,18 @@ const NovelScreenList = ({
           if (novel.id === 'NO_ID') {
             return null;
           }
+          if ('type' in item && item.type === 'header') {
+            return (
+              <Text
+                style={[
+                  styles.volumeHeader,
+                  { color: theme.onSurface, backgroundColor: theme.surface },
+                ]}
+              >
+                {item.title}
+              </Text>
+            );
+          }
           return (
             <ChapterItem
               isDownloading={downloadQueue.some(
@@ -324,10 +382,12 @@ const NovelScreenList = ({
               isBookmarked={!!item.bookmark}
               isLocal={novel.isLocal}
               theme={theme}
-              chapter={item}
-              showChapterTitles={showChapterTitles}
-              deleteChapter={() => deleteChapter(item)}
-              downloadChapter={() => downloadChapter(novel, item)}
+              chapter={item as ChapterInfo}
+              displayMode={displayMode}
+              deleteChapter={() => deleteChapter(item as ChapterInfo)}
+              downloadChapter={() =>
+                downloadChapter(novel, item as ChapterInfo)
+              }
               isSelected={isSelected(item.id)}
               onSelectPress={onSelectPress}
               onSelectLongPress={onSelectLongPress}
@@ -339,7 +399,9 @@ const NovelScreenList = ({
             />
           );
         }}
-        keyExtractor={item => 'c' + item.id}
+        keyExtractor={item =>
+          'type' in item ? item.id : 'c' + (item as ChapterInfo).id
+        }
         contentContainerStyle={styles.contentContainer}
         refreshControl={refreshControl()}
         onEndReached={getNextChapterBatch}
@@ -363,6 +425,7 @@ const NovelScreenList = ({
             page={pages.length > 1 ? pages[pageIndex] : undefined}
             setCustomNovelCover={setCustomNovelCover}
             saveNovelCover={saveNovelCover}
+            deleteCover={deleteCover}
             theme={theme}
             totalChapters={batchInformation.totalChapters}
             trackerSheetRef={trackerSheetRef}
@@ -374,11 +437,14 @@ const NovelScreenList = ({
           <NovelBottomSheet
             bottomSheetRef={novelBottomSheetRef}
             sortAndFilterChapters={sortAndFilterChapters}
-            setShowChapterTitles={setShowChapterTitles}
+            setDisplayMode={setDisplayMode}
             sort={sort}
             theme={theme}
             filter={filter}
-            showChapterTitles={showChapterTitles}
+            displayMode={displayMode}
+            deleteChaptersByCriteria={deleteChaptersByCriteria}
+            deleteAllDownloadedChapters={deleteAllDownloadedChapters}
+            clearAndRefreshChapters={clearAndRefreshChapters}
           />
           <TrackModal
             bottomSheetRef={trackerSheetRef}
@@ -432,6 +498,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  volumeHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 

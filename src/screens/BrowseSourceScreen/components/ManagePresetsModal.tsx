@@ -18,6 +18,7 @@ interface ManagePresetsModalProps {
   presets: FilterPreset[];
   onLoadPreset: (preset: FilterPreset) => void;
   onDeletePreset: (presetId: string) => void;
+  onSetDefault: (preset: FilterPreset) => void;
   theme: ThemeColors;
 }
 
@@ -31,10 +32,17 @@ const ManagePresetsModal: React.FC<ManagePresetsModalProps> = ({
   presets,
   onLoadPreset,
   onDeletePreset,
+  onSetDefault,
   theme,
 }) => {
   const renderRightActions = (item: FilterPreset) => (
     <View style={styles.rightActions}>
+      <IconButton
+        icon={item.isDefault ? 'star' : 'star-outline'}
+        iconColor={item.isDefault ? theme.primary : theme.onSurfaceVariant}
+        size={20}
+        onPress={() => onSetDefault(item)}
+      />
       <IconButton
         icon="download"
         size={20}

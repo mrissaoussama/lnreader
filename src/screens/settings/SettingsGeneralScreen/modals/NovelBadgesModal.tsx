@@ -23,6 +23,7 @@ const NovelBadgesModal: React.FC<NovelBadgesModalProps> = ({
     showDownloadBadges = true,
     showNumberOfNovels = false,
     showUnreadBadges = true,
+    showMatchingBadges = true,
     setLibrarySettings,
   } = useLibrarySettings();
   return (
@@ -57,6 +58,16 @@ const NovelBadgesModal: React.FC<NovelBadgesModalProps> = ({
           onPress={() =>
             setLibrarySettings({
               showNumberOfNovels: !showNumberOfNovels,
+            })
+          }
+          theme={theme}
+        />
+        <Checkbox
+          label={'Show Matching Badges'}
+          status={showMatchingBadges}
+          onPress={() =>
+            setLibrarySettings({
+              showMatchingBadges: !showMatchingBadges,
             })
           }
           theme={theme}

@@ -37,6 +37,7 @@
   "dependencies": {
     "@cd-z/react-native-epub-creator": "^3.0.0",
     "@gorhom/bottom-sheet": "^5.1.4",
+    "@react-native-community/netinfo": "^11.4.1",
     "@react-native-community/slider": "4.5.6",
     "@react-native-cookies/cookies": "^6.2.1",
     "@react-native-google-signin/google-signin": "^14.0.0",

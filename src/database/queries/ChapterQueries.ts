@@ -11,20 +11,23 @@ import { getString } from '@strings/translations';
 import { NOVEL_STORAGE } from '@utils/Storages';
 import { db } from '@database/db';
 import NativeFile from '@specs/NativeFile';
+import { dbWriteQueue } from '@database/utils/DbWriteQueue';
 
 // #region Mutations
 
 export const insertChapters = async (
   novelId: number,
   chapters?: ChapterItem[],
+  options?: { transactional?: boolean },
 ) => {
   if (!chapters?.length) {
     return;
   }
 
-  await db
-    .withTransactionAsync(async () => {
-      const statement = db.prepareSync(` 
+  const transactional = options?.transactional !== false;
+
+  const exec = async () => {
+    const statement = db.prepareSync(`
         INSERT INTO Chapter (path, name, releaseTime, novelId, chapterNumber, page, position)
         VALUES (?, ?, ?, ${novelId}, ?, ?, ?)
         ON CONFLICT(path, novelId) DO UPDATE SET
@@ -34,22 +37,27 @@ export const insertChapters = async (
         releaseTime = excluded.releaseTime,
         chapterNumber = excluded.chapterNumber;
         `);
-      try {
-        chapters.map((chapter, index) =>
-          statement.executeSync(
-            chapter.path,
-            chapter.name ?? 'Chapter ' + (index + 1),
-            chapter.releaseTime || '',
-            chapter.chapterNumber || null,
-            chapter.page || '1',
-            index,
-          ),
-        );
-      } finally {
-        statement.finalizeSync();
-      }
-    })
-    .catch();
+    try {
+      chapters.map((chapter, index) =>
+        statement.executeSync(
+          chapter.path,
+          chapter.name ?? 'Chapter ' + (index + 1),
+          chapter.releaseTime || '',
+          chapter.chapterNumber || null,
+          chapter.page || '1',
+          index,
+        ),
+      );
+    } finally {
+      statement.finalizeSync();
+    }
+  };
+
+  if (transactional) {
+    await db.withTransactionAsync(exec).catch();
+  } else {
+    await exec().catch(() => {});
+  }
 };
 
 export const markChapterRead = (chapterId: number) =>
@@ -74,7 +82,7 @@ export const markAllChaptersRead = (novelId: number) =>
 export const markAllChaptersUnread = (novelId: number) =>
   db.runAsync('UPDATE Chapter SET `unread` = 1 WHERE novelId = ?', novelId);
 
-const deleteDownloadedFiles = async (
+export const deleteDownloadedFiles = async (
   pluginId: string,
   novelId: number,
   chapterId: number,
@@ -113,18 +121,94 @@ export const deleteChapters = async (
   if (!chapters?.length) {
     return;
   }
-  const chapterIdsString = chapters?.map(chapter => chapter.id).toString();
 
-  await db.withTransactionAsync(async () => {
-    await Promise.all(
-      chapters.map(chapter =>
-        deleteDownloadedFiles(pluginId, novelId, chapter.id),
-      ),
-    );
-    await db.execAsync(
-      `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
-    );
-  });
+  await dbWriteQueue.enqueue(
+    async () => {
+      const chapterIdsString = chapters?.map(chapter => chapter.id).toString();
+
+      await db.withTransactionAsync(async () => {
+        // Batch file deletions to avoid overwhelming the bridge/FS
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < chapters.length; i += BATCH_SIZE) {
+          const batch = chapters.slice(i, i + BATCH_SIZE);
+          await Promise.all(
+            batch.map(chapter =>
+              deleteDownloadedFiles(pluginId, novelId, chapter.id),
+            ),
+          );
+        }
+
+        await db.execAsync(
+          `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+        );
+      });
+    },
+    {
+      taskType: 'OTHER',
+      label: 'deleteChapters',
+    },
+  );
+};
+
+export const deleteChaptersByCriteria = async (
+  pluginId: string,
+  novelId: number,
+  criteria: {
+    downloaded?: boolean;
+    notDownloaded?: boolean;
+    read?: boolean;
+    unread?: boolean;
+  },
+) => {
+  let where = 'novelId = ?';
+  const args: any[] = [novelId];
+
+  if (criteria.downloaded) {
+    where += ' AND isDownloaded = 1';
+  }
+  if (criteria.notDownloaded) {
+    where += ' AND isDownloaded = 0';
+  }
+  if (criteria.read) {
+    where += ' AND unread = 0';
+  }
+  if (criteria.unread) {
+    where += ' AND unread = 1';
+  }
+
+  await dbWriteQueue.enqueue(
+    async () => {
+      const chaptersToDelete = await db.getAllAsync<ChapterInfo>(
+        `SELECT * FROM Chapter WHERE ${where}`,
+        ...args,
+      );
+
+      if (chaptersToDelete.length === 0) {
+        return;
+      }
+
+      await db.withTransactionAsync(async () => {
+        // Delete files sequentially with error handling
+        const downloadedChapters = chaptersToDelete.filter(c => c.isDownloaded);
+
+        for (const chapter of downloadedChapters) {
+          try {
+            await deleteDownloadedFiles(pluginId, novelId, chapter.id);
+          } catch (e) {
+            // Continue on individual file deletion errors
+          }
+        }
+
+        // Delete chapters from database
+        const ids = chaptersToDelete.map(c => c.id).join(',');
+        await db.execAsync(`DELETE FROM Chapter WHERE id IN (${ids})`);
+      });
+    },
+    {
+      taskType: 'OTHER',
+      label: 'deleteChaptersByCriteria',
+    },
+  );
 };
 
 export const deleteDownloads = async (chapters: DownloadedChapter[]) => {
@@ -132,19 +216,34 @@ export const deleteDownloads = async (chapters: DownloadedChapter[]) => {
     return;
   }
 
-  const chapterIdsString = chapters.map(chapter => chapter.id).join(',');
+  await dbWriteQueue.enqueue(
+    async () => {
+      const chapterIdsString = chapters.map(chapter => chapter.id).join(',');
 
-  await db.withTransactionAsync(async () => {
-    await Promise.all(
-      chapters.map(chapter =>
-        deleteDownloadedFiles(chapter.pluginId, chapter.novelId, chapter.id),
-      ),
-    );
+      await db.withTransactionAsync(async () => {
+        // Delete files sequentially with error handling
+        for (const chapter of chapters) {
+          try {
+            await deleteDownloadedFiles(
+              chapter.pluginId,
+              chapter.novelId,
+              chapter.id,
+            );
+          } catch (e) {
+            // Continue on individual file deletion errors
+          }
+        }
 
-    await db.execAsync(
-      `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
-    );
-  });
+        await db.execAsync(
+          `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+        );
+      });
+    },
+    {
+      taskType: 'OTHER',
+      label: 'deleteDownloads',
+    },
+  );
 
   showToast(
     `${getString('common.delete')} ${chapters.length} ${getString(
@@ -153,18 +252,141 @@ export const deleteDownloads = async (chapters: DownloadedChapter[]) => {
   );
 };
 
-export const deleteReadChaptersFromDb = async () => {
-  const chapters = await getReadDownloadedChapters();
-  await Promise.all(
-    chapters?.map(chapter => {
-      deleteDownloadedFiles(chapter.pluginId, chapter.novelId, chapter.novelId);
-    }),
-  );
-  const chapterIdsString = chapters?.map(chapter => chapter.id).toString();
-  db.execAsync(
-    `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+export const deleteReadDownloadedChapters = async () => {
+  await dbWriteQueue.enqueue(
+    async () => {
+      const chapters = await getReadDownloadedChapters();
+      if (!chapters || chapters.length === 0) return;
+
+      // Batch file deletions
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < chapters.length; i += BATCH_SIZE) {
+        const batch = chapters.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(chapter =>
+            deleteDownloadedFiles(
+              chapter.pluginId,
+              chapter.novelId,
+              chapter.novelId,
+            ),
+          ),
+        );
+      }
+
+      const chapterIdsString = chapters?.map(chapter => chapter.id).toString();
+      await db.execAsync(
+        `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIdsString})`,
+      );
+    },
+    {
+      taskType: 'OTHER',
+      label: 'deleteReadDownloadedChapters',
+    },
   );
   showToast(getString('novelScreen.readChaptersDeleted'));
+};
+
+/**
+ * Clear chapters from DB by chapter IDs (batch deletion)
+ * This permanently removes chapters from the database
+ */
+export const clearChaptersByIds = async (
+  pluginId: string,
+  novelId: number,
+  chapterIds: number[],
+) => {
+  if (!chapterIds || chapterIds.length === 0) {
+    return;
+  }
+
+  await dbWriteQueue.enqueue(
+    async () => {
+      await db.withTransactionAsync(async () => {
+        // First, get the chapters to check which are downloaded
+        const chaptersToDelete = await db.getAllAsync<ChapterInfo>(
+          `SELECT * FROM Chapter WHERE id IN (${chapterIds.join(',')})`,
+        );
+
+        // Delete downloaded files for chapters that are downloaded
+        const downloadedChapters = chaptersToDelete.filter(c => c.isDownloaded);
+        for (const chapter of downloadedChapters) {
+          try {
+            await deleteDownloadedFiles(pluginId, novelId, chapter.id);
+          } catch (e) {
+            // Continue even if file deletion fails
+          }
+        }
+
+        // Delete chapters from DB in single query
+        await db.execAsync(
+          `DELETE FROM Chapter WHERE id IN (${chapterIds.join(',')})`,
+        );
+      });
+    },
+    {
+      taskType: 'OTHER',
+      label: 'clearChaptersByIds',
+    },
+  );
+
+  showToast(
+    `${getString('common.delete')} ${chapterIds.length} ${getString(
+      'common.chapters',
+    )}`,
+  );
+};
+
+/**
+ * Delete downloaded files by chapter IDs (batch operation)
+ * This only removes downloaded files and marks isDownloaded = 0
+ */
+export const deleteDownloadsByIds = async (
+  pluginId: string,
+  novelId: number,
+  chapterIds: number[],
+) => {
+  if (!chapterIds || chapterIds.length === 0) {
+    return;
+  }
+
+  await dbWriteQueue.enqueue(
+    async () => {
+      await db.withTransactionAsync(async () => {
+        // Get chapters that are actually downloaded
+        const downloadedChapters = await db.getAllAsync<ChapterInfo>(
+          `SELECT * FROM Chapter WHERE id IN (${chapterIds.join(
+            ',',
+          )}) AND isDownloaded = 1`,
+        );
+
+        if (downloadedChapters.length === 0) {
+          return;
+        }
+
+        // Delete downloaded files
+        for (const chapter of downloadedChapters) {
+          try {
+            await deleteDownloadedFiles(pluginId, novelId, chapter.id);
+          } catch (e) {
+            // Continue even if file deletion fails
+          }
+        }
+
+        // Mark as not downloaded in single query
+        await db.execAsync(
+          `UPDATE Chapter SET isDownloaded = 0 WHERE id IN (${chapterIds.join(
+            ',',
+          )})`,
+        );
+      });
+    },
+    {
+      taskType: 'OTHER',
+      label: 'deleteDownloadsByIds',
+    },
+  );
+
+  showToast(`${getString('common.delete')} downloads`);
 };
 
 export const updateChapterProgress = (chapterId: number, progress: number) =>

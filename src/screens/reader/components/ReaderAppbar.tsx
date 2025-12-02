@@ -20,6 +20,7 @@ interface ReaderAppbarProps {
   bookmarked: boolean;
   setBookmarked: React.Dispatch<React.SetStateAction<boolean>>;
   onReload?: () => void;
+  onReloadLocal?: () => void;
 }
 
 const fastOutSlowIn = Easing.bezier(0.4, 0.0, 0.2, 1.0);
@@ -30,6 +31,7 @@ const ReaderAppbar = ({
   bookmarked,
   setBookmarked,
   onReload,
+  onReloadLocal,
 }: ReaderAppbarProps) => {
   const { chapter, novel } = useChapterContext();
   const { statusBarHeight } = useNovelContext();
@@ -117,9 +119,19 @@ const ReaderAppbar = ({
           theme={theme}
           style={styles.bookmark}
         />
+        {onReloadLocal && (
+          <IconButtonV2
+            name="file-refresh-outline"
+            size={24}
+            onPress={onReloadLocal}
+            color={theme.onSurface}
+            theme={theme}
+            style={styles.bookmark}
+          />
+        )}
         {onReload && (
           <IconButtonV2
-            name="reload"
+            name="cloud-refresh"
             size={24}
             onPress={onReload}
             color={theme.onSurface}
