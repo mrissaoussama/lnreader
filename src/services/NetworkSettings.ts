@@ -1,14 +1,33 @@
 import { MMKVStorage } from '@utils/mmkv/mmkv';
+import { NetworkSettings as NetworkSettingsType, initialNetworkSettings } from '@hooks/persisted/useSettings';
+
+const getNetworkSettings = (): NetworkSettingsType => {
+  const settingsStr = MMKVStorage.getString('NETWORK_SETTINGS');
+  if (settingsStr) {
+    try {
+      return { ...initialNetworkSettings, ...JSON.parse(settingsStr) };
+    } catch {
+      return initialNetworkSettings;
+    }
+  }
+  return initialNetworkSettings;
+};
 
 export const NetworkSettings = {
   get maxConcurrency() {
-    return MMKVStorage.getNumber('DOWNLOAD_MAX_SIMULTANEOUS') || 3;
+    return getNetworkSettings().maxGlobalConcurrentTasks;
   },
   get maxPerPlugin() {
-    return MMKVStorage.getNumber('DOWNLOAD_MAX_PER_PLUGIN') || 1;
+    return getNetworkSettings().maxConcurrentTasks;
   },
   get delaySamePlugin() {
-    return MMKVStorage.getNumber('DOWNLOAD_DELAY_SAME_PLUGIN_MS') || 1000;
+    return getNetworkSettings().taskDelay;
+  },
+  get randomDelayRange() {
+    return getNetworkSettings().randomDelayRange;
+  },
+  get pluginSettings() {
+    return getNetworkSettings().pluginSettings;
   },
   get downloadNewChapters() {
     const appSettings = MMKVStorage.getString('APP_SETTINGS');

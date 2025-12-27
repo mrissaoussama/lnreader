@@ -5,6 +5,13 @@ extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autoli
 rootProject.name = 'LNReader'
 
 include ':app'
+include ':plugin_interface'
+include ':plugin_template'
+include ':plugins:ChrysanthemumGarden'
+include ':plugins:CitrusAurora'
+include ':plugins:FictionZone'
+include ':plugins:WtrLab'
+include ':plugins:NovelUpdates'
 includeBuild('../node_modules/@react-native/gradle-plugin')
 
 apply from: new File(["node", "--print", "require.resolve('expo/package.json')"].execute(null, rootDir).text.trim(), "../scripts/autolinking.gradle")

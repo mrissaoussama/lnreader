@@ -53,22 +53,27 @@ export default function useChapter(
   const { setImmersiveMode, showStatusAndNavBar } = useFullscreenMode();
 
   const getChapter = useCallback(
-    async (targetChapter: ChapterInfo = chapter, forceUpdate = false) => {
+    async (targetChapter: ChapterInfo = chapter, forceUpdate: 'network' | 'local' | false = false) => {
       try {
         setLoading(true);
         setError(undefined);
 
         let text = '';
 
+        // Use cache if not forcing an update
         if (!forceUpdate && chapterTextCache.has(targetChapter.id)) {
           const cached = chapterTextCache.get(targetChapter.id)!;
-          // Handle both string and Promise<string> from cache
           text = cached instanceof Promise ? await cached : cached;
         } else {
           const dbChapter = await getDbChapter(targetChapter.id);
-          // Check if chapter is downloaded and read from file
-          if (!forceUpdate && dbChapter?.isDownloaded) {
-            try {
+
+          // Force network: always fetch from internet
+          if (forceUpdate === 'network') {
+            text = await fetchChapter(novel.pluginId, targetChapter.path);
+          }
+          // Force local: only read from downloaded file, no fallback
+          else if (forceUpdate === 'local') {
+            if (dbChapter?.isDownloaded) {
               const { StorageManager } = await import('@utils/StorageManager');
               const novelDir = StorageManager.getNovelPath(
                 novel.id,
@@ -79,25 +84,38 @@ export default function useChapter(
 
               if (await NativeFile.exists(chapterPath)) {
                 text = await NativeFile.readFile(chapterPath);
-                // console.log('Loaded chapter from file:', chapterPath);
               } else {
-                // console.warn('Chapter marked downloaded but file missing:', chapterPath);
-                // Fallback to network if file missing
+                throw new Error('Chapter file not found. Try reloading from network.');
+              }
+            } else {
+              throw new Error('Chapter is not downloaded. Use network reload instead.');
+            }
+          }
+          // Normal load: prefer local if downloaded, otherwise network
+          else {
+            if (dbChapter?.isDownloaded) {
+              try {
+                const { StorageManager } = await import('@utils/StorageManager');
+                const novelDir = StorageManager.getNovelPath(
+                  novel.id,
+                  novel.pluginId,
+                );
+                const chapterPath = `${novelDir}/${targetChapter.id}/index.html`;
+                const NativeFile = (await import('@specs/NativeFile')).default;
+
+                if (await NativeFile.exists(chapterPath)) {
+                  text = await NativeFile.readFile(chapterPath);
+                } else {
+                  // Fallback to network if file missing
+                  text = await fetchChapter(novel.pluginId, targetChapter.path);
+                }
+              } catch (e) {
+                // If reading downloaded file fails, fetch from internet
                 text = await fetchChapter(novel.pluginId, targetChapter.path);
               }
-            } catch (e) {
-              // console.error('Error reading chapter file:', e);
-              // If reading downloaded file fails, fetch from internet
+            } else {
+              // Not downloaded, fetch from internet
               text = await fetchChapter(novel.pluginId, targetChapter.path);
-            }
-          } else {
-            // Fetch from internet
-            text = await fetchChapter(novel.pluginId, targetChapter.path);
-            if (text && !incognitoMode) {
-              // Optional: Save to DB if not incognito?
-              // For now, we just display it.
-              // If we want to save, we need a query for that.
-              // But let's keep it simple and consistent with previous behavior if possible.
             }
           }
         }
@@ -134,7 +152,7 @@ export default function useChapter(
         setLoading(false);
       }
     },
-    [chapter, chapterTextCache, incognitoMode, novel.pluginId],
+    [chapter, chapterTextCache, incognitoMode, novel.pluginId, novel.id, novel.name],
   );
 
   const connectVolumeButton = useCallback(() => {
@@ -242,16 +260,14 @@ export default function useChapter(
     setLoading(true);
     setError(undefined);
     chapterTextCache.delete(chapter.id);
-    await getChapter(chapter, true); // Pass true to force refresh from server
+    await getChapter(chapter, 'network'); // Force refresh from network
   }, [chapter, getChapter, chapterTextCache, setLoading, setError]);
 
   const reloadChapterLocal = useCallback(async () => {
     setLoading(true);
     setError(undefined);
-    // Do not delete from cache, or maybe delete to force re-read from file?
-    // If we want to re-read from file, we should probably clear cache.
     chapterTextCache.delete(chapter.id);
-    await getChapter(chapter, false); // Pass false to try local file first
+    await getChapter(chapter, 'local'); // Force reload from local file only
   }, [chapter, getChapter, chapterTextCache, setLoading, setError]);
 
   useEffect(() => {

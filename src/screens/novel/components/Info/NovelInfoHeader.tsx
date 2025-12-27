@@ -111,13 +111,13 @@ const NovelInfoHeader = ({
   return (
     <>
       <CoverImage
-        source={{ uri: novel.cover }}
+        source={{ uri: novel.cover && novel.cover.length > 0 ? novel.cover : undefined }}
         theme={theme}
         hideBackdrop={hideBackdrop}
       >
         <NovelInfoContainer>
           <NovelThumbnail
-            source={{ uri: novel.cover }}
+            source={{ uri: novel.cover && novel.cover.length > 0 ? novel.cover : undefined }}
             theme={theme}
             setCustomNovelCover={
               isLoading ? showNotAvailable : setCustomNovelCover

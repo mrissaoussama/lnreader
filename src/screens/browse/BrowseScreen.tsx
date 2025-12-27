@@ -19,7 +19,7 @@ const routes = [
 const BrowseScreen = ({ navigation }: BrowseScreenProps) => {
   const theme = useTheme();
   const { searchText, setSearchText, clearSearchbar } = useSearch();
-  const { languagesFilter } = usePlugins();
+  const { languagesFilter, refreshPlugins } = usePlugins();
 
   const searchbarActions = useMemo(
     () =>
@@ -56,6 +56,14 @@ const BrowseScreen = ({ navigation }: BrowseScreenProps) => {
       }),
     [navigation],
   );
+
+  // Refresh plugins when screen gains focus to detect uninstalled native plugins
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshPlugins();
+    });
+    return unsubscribe;
+  }, [navigation, refreshPlugins]);
 
   const [index, setIndex] = React.useState(0);
   return (

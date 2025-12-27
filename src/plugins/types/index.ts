@@ -60,6 +60,8 @@ export interface PluginItem {
   customCSS?: string;
   hasUpdate?: boolean;
   hasSettings?: boolean;
+  isNative?: boolean;
+  packageName?: string;
 }
 
 export interface ImageRequestInit {

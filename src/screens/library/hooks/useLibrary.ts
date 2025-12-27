@@ -52,6 +52,9 @@ export const useLibrary = (
   const [categories, setCategories] = useState<ExtendedCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Version counter to force re-renders when refetchLibrary is called manually
+  const [refreshVersion, setRefreshVersion] = useState(0);
+
   const getLibrary = useCallback(async () => {
     setIsLoading(true);
 
@@ -63,31 +66,43 @@ export const useLibrary = (
       );
     } catch {}
 
-    const [_, novels] = await Promise.all([
-      refreshCategories(),
-      getLibraryNovelsFromDb(
-        sortOrder,
-        filter,
-        searchText,
-        downloadedOnlyMode,
-        libraryLoadLimit,
-        undefined, // offset
-        undefined, // categoryId
-        undefined, // categoryNovelIds
-        hiddenPlugins, // hidden plugins
-      ),
-    ]);
+    // Force refresh categories from DB
+    const dbCategories = getCategoriesFromDb();
+    const categoriesResult = dbCategories.map(c => ({
+      ...c,
+      novelIds: (c.novelIds ?? '').split(',').map(Number),
+    }));
+    setCategories(categoriesResult);
 
-    setLibrary(novels);
+    // Fetch novels from DB
+    const novels = await getLibraryNovelsFromDb(
+      sortOrder,
+      filter,
+      searchText,
+      downloadedOnlyMode,
+      libraryLoadLimit,
+      undefined, // offset
+      undefined, // categoryId
+      undefined, // categoryNovelIds
+      hiddenPlugins, // hidden plugins
+    );
+
+    // Create new array with new references to force React re-render
+    setLibrary([...novels]);
     setIsLoading(false);
   }, [
-    refreshCategories,
     downloadedOnlyMode,
     filter,
     searchText,
     sortOrder,
     libraryLoadLimit,
+    refreshVersion, // Include refreshVersion to force re-fetch
   ]);
+
+  // Manual refresh function that forces a complete re-fetch
+  const forceRefetchLibrary = useCallback(() => {
+    setRefreshVersion(v => v + 1);
+  }, []);
 
   const refreshCategories = useCallback(async () => {
     const dbCategories = getCategoriesFromDb();
@@ -169,7 +184,7 @@ export const useLibrary = (
     refreshCategories,
     novelInLibrary,
     switchNovelToLibrary,
-    refetchLibrary: getLibrary,
+    refetchLibrary: forceRefetchLibrary,
   };
 };
 

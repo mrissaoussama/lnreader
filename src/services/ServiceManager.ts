@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import BackgroundService from 'react-native-background-actions';
 import * as Notifications from 'expo-notifications';
 import NetInfo from '@react-native-community/netinfo';
@@ -172,6 +173,8 @@ export default class ServiceManager {
   private resumeTimeout: NodeJS.Timeout | null = null;
 
   private isReadingSessionActive = false;
+  private _isStarting = false;
+
 
   private constructor() {
     NetInfo.addEventListener(state => {
@@ -219,7 +222,7 @@ export default class ServiceManager {
     tasks: QueuedBackgroundTask[],
     notifyTaskName?: TaskType,
   ) {
-    // Batch MMKV writes to reduce ANR - only write every 300ms max
+    // Batch MMKV writes to reduce ANR - only write every 5000ms max
     this.batchedTaskList = tasks;
 
     if (this.pendingTaskListUpdate) {
@@ -229,7 +232,18 @@ export default class ServiceManager {
 
     this.pendingTaskListUpdate = setTimeout(() => {
       if (this.batchedTaskList) {
-        setMMKVObject(this.STORE_KEY, this.batchedTaskList);
+        // Create a lightweight copy for storage to reduce JSON size and write time
+        const tasksToSave = this.batchedTaskList.map(t => ({
+          ...t,
+          meta: {
+            name: t.meta.name,
+            isRunning: false, // Always save as not running
+            progress: t.task.name === TaskTypes.DOWNLOAD_NOVEL ? t.meta.progress : undefined,
+            progressText: undefined, // Don't save progress text
+          },
+        }));
+
+        setMMKVObject(this.STORE_KEY, tasksToSave);
         this.pendingTaskListUpdate = null;
 
         // For DOWNLOAD_CHAPTER, notify global listeners (TaskQueue) but not specific task listeners
@@ -243,7 +257,7 @@ export default class ServiceManager {
           this.notifyListeners(notifyTaskName);
         }
       }
-    }, 300);
+    }, 5000);
   }
 
   // Force immediate write (for critical operations)
@@ -253,7 +267,17 @@ export default class ServiceManager {
       this.pendingTaskListUpdate = null;
     }
     if (this.batchedTaskList) {
-      setMMKVObject(this.STORE_KEY, this.batchedTaskList);
+      // Create a lightweight copy for storage
+      const tasksToSave = this.batchedTaskList.map(t => ({
+        ...t,
+        meta: {
+          name: t.meta.name,
+          isRunning: false,
+          progress: t.task.name === TaskTypes.DOWNLOAD_NOVEL ? t.meta.progress : undefined,
+          progressText: undefined,
+        },
+      }));
+      setMMKVObject(this.STORE_KEY, tasksToSave);
 
       // CRITICAL: Notify listeners immediately when flushing
       // This ensures the UI updates when tasks are removed
@@ -267,6 +291,14 @@ export default class ServiceManager {
 
   get isRunning() {
     return BackgroundService.isRunning();
+  }
+
+  get isPausedState() {
+    return this.isPaused;
+  }
+
+  get isStartingState() {
+    return this._isStarting;
   }
 
   isMultiplicableTask(task: BackgroundTask) {
@@ -287,6 +319,7 @@ export default class ServiceManager {
       this.resumeTimeout = null;
     }
     if (!this.isRunning) {
+      this._isStarting = true;
       this.isStopping = false;
       // On Android 13+, ensure we only request permission when app is active (Activity attached)
       if (Platform.OS === 'android' && Platform.Version >= 33) {
@@ -367,6 +400,7 @@ export default class ServiceManager {
           },
         ],
       }).catch(error => {
+        this._isStarting = false; // Clear starting flag on error
         Notifications.scheduleNotificationAsync({
           content: {
             title: getString('backupScreen.drive.backupInterruped'),
@@ -526,7 +560,7 @@ export default class ServiceManager {
         return migrateNovel(task.task.data, setMeta);
       case TaskTypes.DOWNLOAD_CHAPTER:
         if (!task.task.data) {
-          // eslint-disable-next-line no-console
+
           console.warn(
             '[ServiceManager] Missing data for DOWNLOAD_CHAPTER task:',
             task.id,
@@ -536,7 +570,7 @@ export default class ServiceManager {
         return downloadChapter(task.task.data, setMeta);
       case TaskTypes.DOWNLOAD_NOVEL: {
         if (!task.task.data) {
-          // eslint-disable-next-line no-console
+
           console.warn(
             '[ServiceManager] Missing data for DOWNLOAD_NOVEL task:',
             task.id,
@@ -553,11 +587,8 @@ export default class ServiceManager {
         // Update the local task object so it can be saved back to storage
         (task.task as DownloadNovelTask).data = updatedTaskData;
 
-        if (newTasks.length > 0) {
-          this.addTask(newTasks);
-          // Flush immediately so next novel task sees updated queue
-          this.flushTaskList();
-        }
+        // Note: We do NOT add tasks here anymore. We return them to the caller (launch loop)
+        // to be added in batch. This reduces MMKV writes significantly.
 
         // Update progress
         const { completedCount, totalCount } = updatedTaskData;
@@ -579,16 +610,17 @@ export default class ServiceManager {
           completed: completedCount,
           total: totalCount,
           isComplete,
+          newTasks,
         };
       }
       case TaskTypes.MASS_IMPORT: {
         const data = task.task.data;
         const massImportData: { urls: string[]; delay: number } =
-          data &&
-          typeof data === 'object' &&
-          Array.isArray(data.urls) &&
-          typeof data.delay === 'number'
-            ? (data as { urls: string[]; delay: number })
+          data && typeof data === 'object' && Array.isArray(data.urls)
+            ? {
+                urls: data.urls,
+                delay: typeof data.delay === 'number' ? data.delay : 500,
+              }
             : { urls: [], delay: 500 };
         return massImport(massImportData, setMeta, task.id);
       }
@@ -746,6 +778,7 @@ export default class ServiceManager {
 
   static async launch() {
     const manager = ServiceManager.manager;
+    manager._isStarting = false; // Service has launched
 
     // Ensure default actions are set (fix for Headless JS/Background)
     NotificationManager.manager.setDefaultActions([
@@ -842,6 +875,16 @@ export default class ServiceManager {
       independentChapterTasksCount + novelChaptersTotal;
     DownloadManager.manager.completedDownloadsCount = novelChaptersCompleted;
 
+    // Show initial notification
+    NotificationManager.manager.update(
+      'Downloads',
+      startingTasks.length > 0 ? 'Preparing downloads...' : 'Starting...',
+      undefined,
+    );
+
+    // Small delay to ensure BackgroundService.isRunning() returns true
+    await sleep(200);
+
     while (BackgroundService.isRunning()) {
       if (manager.isPaused) {
         NotificationManager.manager.update(
@@ -855,10 +898,10 @@ export default class ServiceManager {
       }
 
       // Flush any pending updates before reading queue to avoid stale data
-      manager.flushTaskList();
+      // manager.flushTaskList();
 
       // Small delay to allow any pending addTask operations to complete
-      await sleep(50);
+      await sleep(10);
 
       const queue = manager.getTaskList();
 
@@ -867,7 +910,8 @@ export default class ServiceManager {
 
       const hasPendingDownloads =
         DownloadManager.manager.activeDownloads.size > 0 ||
-        queue.some(t => t.task.name === TaskTypes.DOWNLOAD_CHAPTER);
+        queue.some(t => t.task.name === TaskTypes.DOWNLOAD_CHAPTER) ||
+        queue.some(t => t.task.name === TaskTypes.DOWNLOAD_NOVEL);
 
       if (queue.length === 0 && !hasPendingDownloads) {
         if (manager.isReadingSessionActive) {
@@ -901,8 +945,43 @@ export default class ServiceManager {
         t => t.task.name === TaskTypes.DOWNLOAD_NOVEL,
       ) as Array<QueuedBackgroundTask & { task: DownloadNovelTask }>;
 
-      // Process ALL DOWNLOAD_NOVEL tasks, not just the first one
+      // Optimization: Only replenish if we are running low on chapter tasks
+      // This prevents iterating all novels when the queue is already full
+      const pendingChapterTasksCount = queue.filter(
+        t => t.task.name === TaskTypes.DOWNLOAD_CHAPTER,
+      ).length;
+
+      // We replenish if we have fewer than 2x maxConcurrency tasks, OR if we have no tasks at all
+      // We also MUST run if the task is not initialized (no pendingChapterIds)
+      const shouldReplenish = pendingChapterTasksCount < maxConcurrency * 2;
+
+      const newTasksAccumulator: BackgroundTask[] = [];
+      let queueUpdated = false;
+
+      // Process DOWNLOAD_NOVEL tasks
       for (const downloadNovelTask of downloadNovelTasks) {
+        const isInitialized = !!downloadNovelTask.task.data.pendingChapterIds;
+
+        // Skip if we have enough tasks and this novel is already initialized
+        if (!shouldReplenish && isInitialized) {
+          // Check for completion without executing
+          const data = downloadNovelTask.task.data;
+          const isComplete =
+            (!data.pendingChapterIds || data.pendingChapterIds.length === 0) &&
+            (data.totalCount !== undefined &&
+              data.completedCount === data.totalCount);
+
+          if (isComplete) {
+            if (doneTasks[TaskTypes.DOWNLOAD_NOVEL] !== undefined) {
+              doneTasks[TaskTypes.DOWNLOAD_NOVEL] += 1;
+            }
+            // Mark for removal (handled below)
+            // We force execution for completing tasks so they can clean themselves up properly
+          } else {
+            continue;
+          }
+        }
+
         // Execute DOWNLOAD_NOVEL to replenish chapter batch if needed
         try {
           const result = await manager.executeTask(
@@ -910,9 +989,10 @@ export default class ServiceManager {
             startingTasks,
           );
 
-          // Update totalExpectedDownloads if this novel task just initialized
-          // Note: DownloadManager.processNovelTask already updates totalExpectedDownloads
-          // so we don't need to do it here to avoid double counting
+          // Collect new tasks
+          if (result?.newTasks && result.newTasks.length > 0) {
+            newTasksAccumulator.push(...result.newTasks);
+          }
 
           // Check if all chapters are complete
           if (result?.isComplete) {
@@ -920,29 +1000,30 @@ export default class ServiceManager {
             if (doneTasks[TaskTypes.DOWNLOAD_NOVEL] !== undefined) {
               doneTasks[TaskTypes.DOWNLOAD_NOVEL] += 1;
             }
-            manager.flushTaskList();
-            const updatedQueue = manager.getTaskList();
-            const filtered = updatedQueue.filter(
+
+            // We need to remove it from the queue immediately to prevent re-processing
+            const currentQueue = manager.getTaskList();
+            const filtered = currentQueue.filter(
               t => t.id !== downloadNovelTask.id,
             );
             manager.updateTaskList(filtered, TaskTypes.DOWNLOAD_NOVEL);
-            manager.flushTaskList();
+            queueUpdated = true;
           } else {
             // Update the task data in queue with new state
-            manager.flushTaskList();
-            const updatedQueue = manager.getTaskList();
-            const taskIndex = updatedQueue.findIndex(
+            // We do this in memory first
+            const currentQueue = manager.getTaskList();
+            const taskIndex = currentQueue.findIndex(
               t => t.id === downloadNovelTask.id,
             );
             if (taskIndex >= 0) {
-              // Update the task in the fresh queue with the modified data
               if (
-                updatedQueue[taskIndex].task.name === TaskTypes.DOWNLOAD_NOVEL
+                currentQueue[taskIndex].task.name === TaskTypes.DOWNLOAD_NOVEL
               ) {
-                (updatedQueue[taskIndex].task as any).data =
+                (currentQueue[taskIndex].task as any).data =
                   downloadNovelTask.task.data;
+                // We don't flush here, we mark as updated
+                queueUpdated = true;
               }
-              manager.updateTaskList(updatedQueue, TaskTypes.DOWNLOAD_NOVEL);
             }
           }
         } catch (error: any) {
@@ -955,15 +1036,24 @@ export default class ServiceManager {
             channelId: Platform.OS === 'android' ? 'app_services' : undefined,
           });
           // On error, remove the task
-          manager.flushTaskList();
-          const updatedQueue = manager.getTaskList();
-          const filtered = updatedQueue.filter(
+          const currentQueue = manager.getTaskList();
+          const filtered = currentQueue.filter(
             t => t.id !== downloadNovelTask.id,
           );
           manager.updateTaskList(filtered, TaskTypes.DOWNLOAD_NOVEL);
-          manager.flushTaskList();
+          queueUpdated = true;
         }
         // Don't continue - let download chapter processing happen
+      }
+
+      // Batch add new tasks
+      if (newTasksAccumulator.length > 0) {
+        manager.addTask(newTasksAccumulator);
+        // addTask already flushes, so we don't need to flush again
+        queueUpdated = false; // Handled by addTask
+      } else if (queueUpdated) {
+        // If we updated the queue (removed tasks or updated data) but didn't add new tasks
+        manager.flushTaskList();
       }
 
       // Check Wi-Fi constraint for downloads
@@ -1026,6 +1116,13 @@ export default class ServiceManager {
       ) as Array<QueuedBackgroundTask & { task: DownloadChapterTask }>;
 
       if (downloadQueue.length === 0) {
+        // If no chapter tasks but we have novel tasks, loop back to process them
+        const hasNovelTasks = queue.some(t => t.task.name === TaskTypes.DOWNLOAD_NOVEL);
+        if (hasNovelTasks) {
+          await sleep(100);
+          continue;
+        }
+
         // If no non-download tasks are left, and no downloads, wait for running downloads before exiting
         if (DownloadManager.manager.activeDownloads.size === 0) {
           break;
@@ -1054,10 +1151,8 @@ export default class ServiceManager {
       let taskToStart:
         | (QueuedBackgroundTask & { task: DownloadChapterTask })
         | null = null;
-      let skipReason = '';
-
       for (const task of downloadQueue) {
-        const { canStart, reason } = DownloadManager.manager.canStartDownload(
+        const { canStart } = DownloadManager.manager.canStartDownload(
           task,
           pausedPlugins,
           pausedNovels,
@@ -1066,17 +1161,21 @@ export default class ServiceManager {
         if (canStart) {
           taskToStart = task;
           break;
-        } else {
-          skipReason = reason || 'Unknown reason';
         }
-      }
-
-      if (!taskToStart && downloadQueue.length > 0 && skipReason) {
-        // No task to start
       }
 
       if (taskToStart) {
         const task = taskToStart;
+
+        // Update notification with simple format
+        const completed = DownloadManager.manager.completedDownloadsCount;
+        const total = DownloadManager.manager.totalExpectedDownloads;
+        const progress = total > 0 ? (completed / total) * 100 : undefined;
+        NotificationManager.manager.update(
+          'Downloads',
+          `${completed}/${total} chapters`,
+          progress,
+        );
 
         DownloadManager.manager.startDownload(task.id, task.task.data.pluginId);
 
@@ -1111,25 +1210,20 @@ export default class ServiceManager {
               false,
             );
           } finally {
-            // Throttled notification update
+            // Throttled notification update - only update every 5 seconds to minimize overhead
             const now = Date.now();
             if (
-              now - DownloadManager.manager.lastNotificationTime > 2000 ||
+              now - DownloadManager.manager.lastNotificationTime > 5000 ||
               DownloadManager.manager.activeDownloads.size === 0
             ) {
               DownloadManager.manager.lastNotificationTime = now;
-              const displayTotal =
-                DownloadManager.manager.totalExpectedDownloads > 0
-                  ? DownloadManager.manager.totalExpectedDownloads
-                  : DownloadManager.manager.completedDownloadsCount;
+              const currentCompleted = DownloadManager.manager.completedDownloadsCount;
+              const currentTotal = DownloadManager.manager.totalExpectedDownloads;
 
               NotificationManager.manager.update(
                 'Downloads',
-                `${DownloadManager.manager.completedDownloadsCount}/${displayTotal} chapters`,
-                displayTotal > 0
-                  ? DownloadManager.manager.completedDownloadsCount /
-                      displayTotal
-                  : 0,
+                `${currentCompleted}/${currentTotal} chapters`,
+                currentTotal > 0 ? currentCompleted / currentTotal : 0,
               );
             }
 
@@ -1260,10 +1354,23 @@ export default class ServiceManager {
   private getTaskListFromStorage(): QueuedBackgroundTask[] {
     const tasks =
       getMMKVObject<Array<QueuedBackgroundTask>>(this.STORE_KEY) || [];
-    return tasks.filter(t => t && t.task && t.task.name && t.id);
+    return tasks
+      .filter(t => t && t.task && t.task.name && t.id)
+      .map(t => ({
+        ...t,
+        meta: {
+          name: t.meta?.name || this.getTaskName(t.task),
+          isRunning: false,
+          progress: t.meta?.progress,
+          progressText: t.meta?.progressText,
+        },
+      }));
   }
 
   getTaskList() {
+    if (this.batchedTaskList) {
+      return this.batchedTaskList;
+    }
     return this.getTaskListFromStorage();
   }
 
@@ -1586,13 +1693,25 @@ export default class ServiceManager {
       this.resumeTimeout = null;
     }
     const taskCount = this.getTaskCount();
-    // Only resume if there are tasks in the queue and service is not running
+    // Only start service if there are tasks in the queue and service is not running
     if (!this.isRunning && taskCount > 0) {
       setTimeout(() => this.start(), 0);
+    } else if (this.isRunning) {
+      // Service is running, just update the notification to show it's no longer paused
+      NotificationManager.manager.update(
+        'Downloads',
+        'Resuming...',
+        undefined,
+      );
     }
   }
 
   stop() {
+    if (this.resumeTimeout) {
+      clearTimeout(this.resumeTimeout);
+      this.resumeTimeout = null;
+    }
+    this._isStarting = false;
     if (this.isRunning) {
       this.isStopping = true;
       BackgroundService.stop();

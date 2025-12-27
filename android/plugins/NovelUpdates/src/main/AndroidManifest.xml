@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:label="LNReader Plugin: Novel Updates"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.NoDisplay">
+        
+        <activity android:name=".MainActivity"
+            android:exported="true">
+            <meta-data 
+                android:name="com.rajarsheechatterjee.LNReader.PLUGIN_CLASS" 
+                android:value="com.lnreader.plugins.novelupdates.NovelUpdates" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.rajarsheechatterjee.LNReader.PLUGIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

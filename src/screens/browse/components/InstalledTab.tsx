@@ -61,8 +61,17 @@ const Item = memo(
       [theme.error],
     );
     const containerStyle = useMemo(
-      () => [styles.container, { backgroundColor: theme.surface }],
-      [theme.surface],
+      () => [
+        styles.container,
+        {
+          backgroundColor: theme.surface,
+          borderColor: item.isNative ? theme.primary : 'transparent',
+          borderWidth: item.isNative ? 1 : 0,
+          borderRadius: 8,
+          marginVertical: 2,
+        },
+      ],
+      [theme.surface, theme.primary, item.isNative],
     );
     const iconStyle = useMemo(
       () => [styles.icon, { backgroundColor: theme.surface }],
@@ -250,8 +259,17 @@ const LatestButton = memo(({ textColor }: { textColor: string }) => {
 const SkeletonItem = memo(
   ({ item, theme }: { item: PluginItem; theme: ThemeColors }) => {
     const containerStyle = useMemo(
-      () => [styles.container, { backgroundColor: theme.surface }],
-      [theme.surface],
+      () => [
+        styles.container,
+        {
+          backgroundColor: theme.surface,
+          borderColor: item.isNative ? theme.primary : 'transparent',
+          borderWidth: item.isNative ? 1 : 0,
+          borderRadius: 8,
+          marginVertical: 2,
+        },
+      ],
+      [theme.surface, theme.primary, item.isNative],
     );
     const iconStyle = useMemo(
       () => [styles.icon, { backgroundColor: theme.surface }],

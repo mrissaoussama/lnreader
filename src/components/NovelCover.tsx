@@ -125,7 +125,7 @@ function NovelCover<
 
   const selectNovel = () => onLongPress(item);
 
-  const uri = item.cover || defaultCover;
+  const uri = item.cover && item.cover.length > 0 ? item.cover : defaultCover;
   if (item.completeRow) {
     if (!addSkeletonLoading) {
       return <></>;

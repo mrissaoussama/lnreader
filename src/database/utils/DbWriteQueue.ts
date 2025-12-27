@@ -52,8 +52,8 @@ class DbWriteQueue {
   private initialized = false;
 
   // Batched persistence system
-  private batchInsertThreshold = 5; // Write JSON after this many inserts
-  private batchFlushTimeout = 5000; // Flush after 5 seconds of no activity
+  private batchInsertThreshold = 15; // Write JSON after this many inserts
+  private batchFlushTimeout = 15000; // Flush after 5 seconds of no activity
   private updateSkipTimeWindow = 300000; // 5 minutes - skip updates within this time window
   private pendingBatches: Map<
     string,

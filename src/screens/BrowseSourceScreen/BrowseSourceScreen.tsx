@@ -323,14 +323,19 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
     return unsubscribe;
   }, [refetchLibrary]);
 
-  // Listen for navigation focus to detect when user returns from LocalFiltersScreen
+  // Listen for navigation focus to detect when user returns from LocalFiltersScreen or WebView
   React.useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       setIsLocalFiltersOpen(false);
+      // If there was an error (like cloudflare), retry fetching when user returns
+      // This handles the case where user went to webview to bypass cloudflare
+      if (errorMessage && !isLoading && !isSearching) {
+        refetchNovels();
+      }
     });
 
     return unsubscribe;
-  }, [navigation, setIsLocalFiltersOpen]);
+  }, [navigation, setIsLocalFiltersOpen, errorMessage, isLoading, isSearching, refetchNovels]);
 
   const { bottom, right } = useSafeAreaInsets();
   const filterSheetRef = useRef<BottomSheetModal | null>(null);
@@ -406,7 +411,7 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
 
       {isLoading || isSearching ? (
         <SourceScreenSkeletonLoading theme={theme} />
-      ) : errorMessage && filteredNovelList.length === 0 ? (
+      ) : errorMessage ? (
         <ErrorScreenV2
           error={errorMessage || getString('sourceScreen.noResultsFound')}
           actions={[
@@ -420,6 +425,17 @@ const BrowseSourceScreen = ({ route, navigation }: BrowseSourceScreenProps) => {
                   refetchNovels();
                 }
               },
+            },
+          ]}
+        />
+      ) : filteredNovelList.length === 0 && !searchText ? (
+        <ErrorScreenV2
+          error={getString('sourceScreen.noResultsFound')}
+          actions={[
+            {
+              iconName: 'refresh',
+              title: getString('common.retry'),
+              onPress: () => refetchNovels(),
             },
           ]}
         />

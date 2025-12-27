@@ -143,8 +143,23 @@ class NativeFile(context: ReactApplicationContext) :
     override fun mkdir(filepath: String) {
         val file = File(filepath)
         if (!file.exists()) {
+            // Check if parent exists and is a directory
+            val parent = file.parentFile
+            if (parent != null && parent.exists() && !parent.isDirectory) {
+                throw Exception("Parent path exists but is not a directory: ${parent.absolutePath}")
+            }
+            
             val created = file.mkdirs()
-            if (!created) throw Exception("Directory could not be created")
+            if (!created) {
+                // Provide more details about why mkdir failed
+                val reason = when {
+                    !file.canWrite() && file.exists() -> "No write permission"
+                    parent != null && !parent.canWrite() -> "No write permission on parent directory"
+                    filepath.length > 255 -> "Path too long (${filepath.length} chars)"
+                    else -> "Unknown reason - check storage permissions and available space"
+                }
+                throw Exception("Directory could not be created: $filepath. Reason: $reason")
+            }
         }
     }
 

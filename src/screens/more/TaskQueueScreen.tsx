@@ -433,6 +433,7 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
     ServiceManager.manager.getTaskList(),
   );
   const [isRunning, setIsRunning] = useState(ServiceManager.manager.isRunning);
+  const [isPaused, setIsPaused] = useState(false);
   const [visible, setVisible] = useState(false);
 
   const [expandedPlugins, setExpandedPlugins] = useState<
@@ -448,8 +449,11 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
     const onQueueChange = (newQueue: QueuedBackgroundTask[]) => {
       setTaskQueue(newQueue);
       // Always sync isRunning state from ServiceManager
-      const running = ServiceManager.manager.isRunning;
+      // Consider service running if isRunning OR isStarting (to avoid flicker)
+      const running = ServiceManager.manager.isRunning || ServiceManager.manager.isStartingState;
       setIsRunning(running);
+      // Check if paused via public getter
+      setIsPaused(ServiceManager.manager.isPausedState || false);
     };
 
     const unsubscribe = ServiceManager.manager.observeQueue(onQueueChange);
@@ -457,8 +461,18 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
     // Initial state sync
     onQueueChange(ServiceManager.manager.getTaskList());
 
+    // Poll for pause state changes (for when pause is triggered from notification)
+    const pollInterval = setInterval(() => {
+      // Consider service running if isRunning OR isStarting (to avoid flicker)
+      const running = ServiceManager.manager.isRunning || ServiceManager.manager.isStartingState;
+      const paused = ServiceManager.manager.isPausedState || false;
+      setIsRunning(running);
+      setIsPaused(paused);
+    }, 1000);
+
     return () => {
       unsubscribe();
+      clearInterval(pollInterval);
     };
   }, []);
 
@@ -813,26 +827,46 @@ const TaskQueue = ({ navigation }: TaskQueueScreenProps) => {
           ]}
           color={theme.onPrimary}
           label={
-            isRunning ? getString('common.pause') : getString('common.resume')
+            // Show Resume if paused OR not running, otherwise show Pause
+            (isPaused || !isRunning) ? getString('common.resume') : getString('common.pause')
           }
           uppercase={false}
-          icon={isRunning ? 'pause' : 'play'}
+          icon={(isPaused || !isRunning) ? 'play' : 'pause'}
           onPress={() => {
-            if (isRunning) {
+            if (isRunning && !isPaused) {
+              console.log('[TaskQueue] Pausing...');
               ServiceManager.manager.pause();
-              setIsRunning(false);
+              setIsPaused(true);
             } else {
-              // Un-pause all before resuming
-              setPausedPlugins(new Set());
-              setPausedNovels(new Set());
+              console.log('[TaskQueue] Resuming... isRunning:', isRunning, 'isPaused:', isPaused);
+              // Clear all paused plugins and novels before resuming
+              MMKVStorage.set('DOWNLOAD_PAUSED_PLUGINS', '[]');
+              MMKVStorage.set('DOWNLOAD_PAUSED_NOVELS', '[]');
+              // Also clear the cache
+              cachedPausedPlugins = new Set();
+              cachedPausedNovels = new Set();
+              lastPauseCacheTime = 0;
               setPausedPluginsState(new Set());
               setPausedNovelsState(new Set());
+
+              // Resume the service
               ServiceManager.manager.resume();
-              // Only set isRunning to true if there are tasks
-              // The observeQueue callback will update it properly
-              setTimeout(() => {
-                setIsRunning(ServiceManager.manager.isRunning);
-              }, 100);
+              setIsPaused(false);
+              setIsRunning(true); // Optimistically set running to true
+
+              // Poll for running state since BackgroundService.isRunning() may not update immediately
+              const checkRunning = () => {
+                const running = ServiceManager.manager.isRunning || ServiceManager.manager.isStartingState;
+                const paused = ServiceManager.manager.isPausedState || false;
+                console.log('[TaskQueue] checkRunning poll: running=', running, 'paused=', paused, 'isStarting=', ServiceManager.manager.isStartingState);
+                setIsRunning(running);
+                setIsPaused(paused);
+                if (!running && ServiceManager.manager.getTaskCount() > 0) {
+                  // Service not running yet but tasks exist, check again
+                  setTimeout(checkRunning, 300);
+                }
+              };
+              setTimeout(checkRunning, 200);
             }
           }}
         />

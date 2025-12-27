@@ -16,7 +16,7 @@ export class DownloadManager {
   // Runtime state
   activeDownloads: Set<string> = new Set();
   private pluginRunningCount = new Map<string, number>();
-  private pluginLastDownloadTime = new Map<string, number>();
+  private pluginNextAllowedTime = new Map<string, number>();
   lastNotificationTime = 0;
 
   // Stats
@@ -37,7 +37,7 @@ export class DownloadManager {
   reset() {
     this.activeDownloads.clear();
     this.pluginRunningCount.clear();
-    this.pluginLastDownloadTime.clear();
+    this.pluginNextAllowedTime.clear();
     this.skippedDownloads = 0;
     this.completedDownloadsCount = 0;
     this.failedDownloads = [];
@@ -118,7 +118,9 @@ export class DownloadManager {
       id => !chaptersInQueueOrActive.has(id),
     );
 
-    const maxPerPlugin = NetworkSettings.maxPerPlugin;
+    const pluginSettings = NetworkSettings.pluginSettings[pluginId] || {};
+    const maxPerPlugin =
+      pluginSettings.maxConcurrentTasks ?? NetworkSettings.maxPerPlugin;
     const maxConcurrency = NetworkSettings.maxConcurrency;
 
     const pluginTasksInQueue = currentQueue.filter(
@@ -137,7 +139,18 @@ export class DownloadManager {
       const allChapters = await getNovelChapters(novelId);
       const chapterMap = new Map(allChapters.map(c => [c.id, c]));
 
-      newTasks = actuallyPending.slice(0, chaptersToAdd).map(chapterId => {
+      // Filter out any chapters that got downloaded in the meantime
+      const chaptersStillToDownload = actuallyPending
+        .slice(0, chaptersToAdd)
+        .filter(chapterId => {
+          const chapter = chapterMap.get(chapterId);
+          if (chapter?.isDownloaded) {
+            return false;
+          }
+          return true;
+        });
+
+      newTasks = chaptersStillToDownload.map(chapterId => {
         const chapter = chapterMap.get(chapterId);
         return {
           name: TaskTypes.DOWNLOAD_CHAPTER,
@@ -151,6 +164,14 @@ export class DownloadManager {
           },
         };
       });
+
+      // Update pending list to remove any chapters that were already downloaded
+      taskData.pendingChapterIds = (taskData.pendingChapterIds || []).filter(
+        id => {
+          const chapter = chapterMap.get(id);
+          return !chapter?.isDownloaded;
+        },
+      );
     }
 
     const isComplete =
@@ -184,7 +205,9 @@ export class DownloadManager {
       return { canStart: false, reason: `Novel ${data.novelId} is paused` };
     }
 
-    const maxPerPlugin = NetworkSettings.maxPerPlugin;
+    const pluginSettings = NetworkSettings.pluginSettings[data.pluginId] || {};
+    const maxPerPlugin =
+      pluginSettings.maxConcurrentTasks ?? NetworkSettings.maxPerPlugin;
     const pluginCount = this.pluginRunningCount.get(data.pluginId) ?? 0;
 
     if (pluginCount >= maxPerPlugin) {
@@ -194,9 +217,8 @@ export class DownloadManager {
       };
     }
 
-    const delayMs = NetworkSettings.delaySamePlugin;
-    const lastDownload = this.pluginLastDownloadTime.get(data.pluginId);
-    if (lastDownload && Date.now() - lastDownload < delayMs) {
+    const nextAllowed = this.pluginNextAllowedTime.get(data.pluginId);
+    if (nextAllowed && Date.now() < nextAllowed) {
       return { canStart: false, reason: 'Plugin delay active' };
     }
 
@@ -212,7 +234,21 @@ export class DownloadManager {
       pluginId,
       (this.pluginRunningCount.get(pluginId) ?? 0) + 1,
     );
-    this.pluginLastDownloadTime.set(pluginId, Date.now());
+
+    // Calculate next allowed time
+    const pluginSettings = NetworkSettings.pluginSettings[pluginId] || {};
+    const baseDelay = pluginSettings.taskDelay ?? NetworkSettings.delaySamePlugin;
+    const randomRange =
+      pluginSettings.randomDelayRange ?? NetworkSettings.randomDelayRange;
+
+    let delay = baseDelay;
+    if (randomRange && randomRange.max > randomRange.min) {
+      delay +=
+        Math.floor(Math.random() * (randomRange.max - randomRange.min + 1)) +
+        randomRange.min;
+    }
+
+    this.pluginNextAllowedTime.set(pluginId, Date.now() + delay);
   }
 
   /**

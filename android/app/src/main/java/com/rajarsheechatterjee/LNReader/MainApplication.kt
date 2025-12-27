@@ -15,6 +15,8 @@ import com.facebook.soloader.SoLoader
 import com.rajarsheechatterjee.NativeFile.NativePackage
 import com.rajarsheechatterjee.NativeVolumeButtonListener.NativeVolumeButtonListenerPackage
 import com.rajarsheechatterjee.NativeZipArchive.NativeZipArchivePackage
+import com.rajarsheechatterjee.LNReader.service.TaskPackage
+import com.rajarsheechatterjee.LNReader.plugins.PluginManager
 import expo.modules.ApplicationLifecycleDispatcher
 
 class MainApplication : Application(), ReactApplication {
@@ -25,6 +27,8 @@ class MainApplication : Application(), ReactApplication {
                     add(NativePackage())
                     add(NativeVolumeButtonListenerPackage())
                     add(NativeZipArchivePackage())
+                    add(TaskPackage())
+                    add(HtmlParserPackage())
                 }
 
             override fun getJSMainModuleName(): String = "index"
@@ -41,6 +45,11 @@ class MainApplication : Application(), ReactApplication {
     override fun onCreate() {
         super.onCreate()
         SoLoader.init(this, OpenSourceMergedSoMapping)
+        
+        // Load plugins
+        PluginManager.instance.registerInternalPlugins(this)
+        PluginManager.instance.loadExternalPlugins(this)
+        
         if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
             // If you opted-in for the New Architecture, we load the native entry point for this app.
             load()

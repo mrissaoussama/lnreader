@@ -50,7 +50,7 @@ const CoverImage = ({
   theme,
   hideBackdrop,
 }: CoverImageProps) => {
-  if (hideBackdrop) {
+  if (hideBackdrop || !source.uri) {
     return <View>{children}</View>;
   } else {
     return (
@@ -94,7 +94,11 @@ const NovelThumbnail = ({
       style={styles.novelThumbnailContainer}
     >
       {!expanded ? (
-        <Image source={source} style={styles.novelThumbnail} />
+        source.uri ? (
+          <Image source={source} style={styles.novelThumbnail} />
+        ) : (
+          <View style={styles.novelThumbnail} />
+        )
       ) : (
         <Portal>
           <IconButton
@@ -131,7 +135,13 @@ const NovelThumbnail = ({
             style={[styles.expandedOverlay]}
             onPress={() => setExpanded(false)}
           >
-            <Image source={source} resizeMode="contain" style={styles.flex1} />
+            {source.uri ? (
+              <Image
+                source={source}
+                resizeMode="contain"
+                style={styles.flex1}
+              />
+            ) : null}
           </Pressable>
         </Portal>
       )}

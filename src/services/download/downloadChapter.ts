@@ -1,3 +1,4 @@
+import { NativeModules, DeviceEventEmitter } from 'react-native';
 import * as cheerio from 'cheerio';
 import { Plugin } from '@plugins/types';
 import { downloadFile } from '@plugins/helpers/fetch';
@@ -12,6 +13,8 @@ import { isCancelledChapter, clearCancelledChapter } from './cancelRegistry';
 import { sleep } from '@utils/sleep';
 import { dbWriteQueue } from '@database/utils/DbWriteQueue';
 import { StorageManager } from '@utils/StorageManager';
+
+const { TaskModule } = NativeModules;
 
 async function markChapterDownloaded(chapterId: number): Promise<void> {
   return dbWriteQueue.enqueue(
@@ -96,29 +99,74 @@ const createChapterFolder = async (
 
   try {
     await NativeFile.mkdir(chapterFolder);
-    const nomediaPath = chapterFolder + '/.nomedia';
+    // Try to create .nomedia but don't fail if it doesn't work
     try {
-      await NativeFile.writeFile(nomediaPath, '');
-    } catch (error) {}
+      await NativeFile.writeFile(chapterFolder + '/.nomedia', '');
+    } catch {
+      // Ignore .nomedia errors - not critical
+    }
     return chapterFolder;
   } catch (error) {
-    // If SD card fails, fallback to internal storage
-
+    // Primary storage failed (likely SAF/SD card issue), use internal storage
     const fallbackFolder = `${
       NativeFile.getConstants().ExternalDirectoryPath
     }/Novels/${pluginId}/${novelId}/${chapterId}`;
+
     try {
       await NativeFile.mkdir(fallbackFolder);
-      const nomediaPath = fallbackFolder + '/.nomedia';
+      // Try to create .nomedia but don't fail if it doesn't work
       try {
-        await NativeFile.writeFile(nomediaPath, '');
-      } catch (nomediaError) {}
-
+        await NativeFile.writeFile(fallbackFolder + '/.nomedia', '');
+      } catch {
+        // Ignore .nomedia errors
+      }
       return fallbackFolder;
     } catch (fallbackError) {
-      throw error; // Throw original error
+      // Both primary and fallback failed
+      throw new Error('Failed to create download folder. Please check storage permissions.');
     }
   }
+};
+
+// Simple concurrency limiter
+const pLimit = (concurrency: number) => {
+  const queue: (() => Promise<void>)[] = [];
+  let activeCount = 0;
+
+  const next = () => {
+    activeCount--;
+    if (queue.length > 0) {
+      const task = queue.shift();
+      if (task) {
+        activeCount++;
+        task();
+      }
+    }
+  };
+
+  const run = <T>(fn: () => Promise<T>): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const task = async () => {
+        try {
+          const result = await fn();
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        } finally {
+          next();
+        }
+      };
+
+      if (activeCount < concurrency) {
+        activeCount++;
+        task();
+      } else {
+        queue.push(task);
+      }
+    });
+  };
+
+  return run;
 };
 
 const downloadChapterImages = async (
@@ -136,8 +184,19 @@ const downloadChapterImages = async (
     novelId,
     chapterId,
   });
-  const $ = cheerio.load(html);
-  const imgs = $('img');
+
+  // Acquire CPU lock for Cheerio parsing
+  // const releaseCpuLock = await ServiceManager.manager.acquireCpuLock();
+  let $: cheerio.CheerioAPI;
+  let imgs: cheerio.Cheerio<cheerio.Element>;
+
+  try {
+    $ = cheerio.load(html);
+    imgs = $('img');
+  } finally {
+    // releaseCpuLock();
+  }
+
   const urls: string[] = [];
 
   // Collect urls and rewrite src
@@ -158,33 +217,47 @@ const downloadChapterImages = async (
   await NativeFile.writeFile(folder + '/index.html', rewrittenHtml);
 
   let lastUpdate = 0;
+  let completedCount = 0;
 
-  // Download images sequentially
-  for (let i = 0; i < urls.length; i++) {
-    if (isCancelledChapter(chapterId)) {
-      throw new Error('Download cancelled');
-    }
+  // Download images in parallel with limit
+  const limit = pLimit(5);
 
-    if (setMeta) {
-      const now = Date.now();
-      if (now - lastUpdate > 1000 || i === 0 || i === urls.length - 1) {
-        setMeta(meta => ({
-          ...meta,
-          progress: urls.length > 0 ? (i + 1) / urls.length : undefined,
-          progressText: `${i + 1}/${urls.length}`,
-        }));
-        lastUpdate = now;
+  const promises = urls.map((url, i) => {
+    return limit(async () => {
+      if (isCancelledChapter(chapterId)) {
+        // We can't easily stop other promises, but we can skip execution
+        return;
       }
-    }
 
-    try {
-      await downloadFile(
-        urls[i],
-        `${folder}/${i}.b64.png`,
-        {},
-        plugin.imageRequestInit,
-      );
-    } catch (error) {}
+      try {
+        await downloadFile(
+          url,
+          `${folder}/${i}.b64.png`,
+          {},
+          plugin.imageRequestInit,
+        );
+      } catch (error) {}
+
+      completedCount++;
+
+      if (setMeta) {
+        const now = Date.now();
+        if (now - lastUpdate > 1000 || completedCount === urls.length) {
+          setMeta(meta => ({
+            ...meta,
+            progress: urls.length > 0 ? completedCount / urls.length : undefined,
+            progressText: `${completedCount}/${urls.length}`,
+          }));
+          lastUpdate = now;
+        }
+      }
+    });
+  });
+
+  await Promise.all(promises);
+
+  if (isCancelledChapter(chapterId)) {
+    throw new Error('Download cancelled');
   }
 };
 
@@ -221,7 +294,64 @@ export const downloadChapter = async (
   // Wait if paused
   await waitIfPaused(plugin.id, novel.id, chapter.id);
 
-  const chapterText = await plugin.parseChapter(chapter.path);
+  // Native Plugin Delegation
+  if (plugin.isNative) {
+    return new Promise((resolve, reject) => {
+      const taskId = `download_${chapter.id}`;
+
+      const subscription = DeviceEventEmitter.addListener('TASK_PROGRESS', (event) => {
+        if (event.taskId === taskId) {
+          if (event.progress === 100) {
+            subscription.remove();
+            setMeta(meta => ({ ...meta, progress: 1, isRunning: false }));
+            resolve({ skipped: false });
+          } else if (event.progress === -1) {
+            subscription.remove();
+            reject(new Error(event.message));
+          } else {
+            setMeta(meta => ({
+              ...meta,
+              progress: event.progress / 100,
+              progressText: event.message,
+            }));
+          }
+        }
+      });
+
+      // Check cancellation periodically
+      const cancelCheckInterval = setInterval(() => {
+        if (isCancelledChapter(chapter.id)) {
+          clearInterval(cancelCheckInterval);
+          subscription.remove();
+          reject(new Error('Download cancelled'));
+        }
+      }, 1000);
+
+      try {
+        TaskModule.queueTask(taskId, 'DOWNLOAD_CHAPTER', JSON.stringify({
+          pluginId: plugin.id,
+          novelId: novel.id,
+          chapterId: chapter.id,
+          chapterUrl: chapter.url,
+          novelPath: novel.path,
+        }));
+      } catch (e) {
+        clearInterval(cancelCheckInterval);
+        subscription.remove();
+        reject(e);
+      }
+    });
+  }
+
+  // Acquire CPU lock for heavy parsing
+  // const releaseCpuLock = await ServiceManager.manager.acquireCpuLock();
+  let chapterText = '';
+  try {
+    chapterText = await plugin.parseChapter(chapter.path);
+  } finally {
+    // releaseCpuLock();
+  }
+
   if (!chapterText || !chapterText.length) {
     throw new Error(getString('downloadScreen.chapterEmptyOrScrapeError'));
   }
